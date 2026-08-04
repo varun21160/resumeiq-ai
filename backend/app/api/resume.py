@@ -10,7 +10,10 @@ from app.database.session import get_db
 from app.models.resume import Resume
 from app.models.user import User
 from app.repositories.resume_repository import ResumeRepository
-from app.schemas.resume import ResumeResponse
+from app.schemas.resume import (
+    ResumeResponse,
+    ResumeListResponse,
+)
 from app.core.security import get_current_user
 
 router = APIRouter(prefix="/resumes", tags=["Resumes"])
@@ -68,3 +71,22 @@ async def upload_resume(
 
     repository = ResumeRepository()
     return repository.create(db, resume)
+
+@router.get(
+    "",
+    response_model=ResumeListResponse,
+)
+def get_resumes(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    repository = ResumeRepository()
+
+    resumes = repository.get_all_by_user(
+        db,
+        current_user.id,
+    )
+
+    return {
+        "resumes": resumes
+    }

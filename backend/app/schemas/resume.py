@@ -1,5 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel
+from typing import List
 
 
 class ResumeResponse(BaseModel):
@@ -13,3 +14,6 @@ class ResumeResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ResumeListResponse(BaseModel):
+    resumes: List[ResumeResponse]
