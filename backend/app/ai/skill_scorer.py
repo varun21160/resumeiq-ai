@@ -4,7 +4,7 @@ from app.ai.fuzzy_matcher import FuzzyMatcher
 from app.ai.skill_weights import SKILL_WEIGHTS
 
 
-class ATSScorer:
+class SkillScorer:
 
     @staticmethod
     def calculate(

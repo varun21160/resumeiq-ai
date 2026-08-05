@@ -1,6 +1,5 @@
 from app.ai.keyword_extractor import KeywordExtractor
-from app.ai.scorer import ATSScorer
-
+from app.ai.skill_scorer import SkillScorer
 
 class ATSEngine:
 
@@ -17,7 +16,7 @@ class ATSEngine:
 
         jd_skills = KeywordExtractor.extract(job_description)
 
-        result = ATSScorer.calculate(
+        result = SkillScorer.calculate(
             resume_skills,
             jd_skills,
         )
