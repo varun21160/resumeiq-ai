@@ -7,13 +7,14 @@ class OverallATSScorer:
     """
 
     WEIGHTS = {
-        "skills": 35,
+        "skills": 40,
         "experience": 25,
         "projects": 15,
         "education": 10,
         "structure": 5,
         "achievements": 5,
         "formatting": 5,
+        "certifications":10,
     }
 
     @classmethod

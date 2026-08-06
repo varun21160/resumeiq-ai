@@ -1,16 +1,20 @@
-from typing import List
+from typing import Dict, List
 
 from app.ai.fuzzy_matcher import FuzzyMatcher
 from app.ai.skill_weights import SKILL_WEIGHTS
 
 
 class SkillScorer:
+    """
+    Calculates the skill matching score between a resume and
+    a job description.
+    """
 
     @staticmethod
     def calculate(
         resume_skills: List[str],
         jd_skills: List[str],
-    ):
+    ) -> Dict:
 
         matched = []
         missing = []
@@ -49,7 +53,7 @@ class SkillScorer:
         )
 
         return {
-            "ats_score": score,
+            "score": score,
             "matched_skills": sorted(set(matched)),
             "missing_skills": sorted(set(missing)),
         }
