@@ -2,33 +2,38 @@ from pprint import pprint
 
 from app.ai.analyzers.project_analyzer import ProjectAnalyzer
 
+
 resume = """
-Projects
+PROJECTS
 
-Developed ResumeIQ AI
+SaaS Subscription Churn Analysis
+Developed a churn analysis solution using Python, SQL and Power BI.
+Analyzed 10,000 customer records and achieved 92% prediction accuracy.
+GitHub: github.com/example/churn-analysis
 
-Built HR Analytics Dashboard
+HR Analytics Dashboard
+Built an HR analytics dashboard using Power BI, Python and SQL.
+Reduced manual reporting time by 30%.
 
-Python
-SQL
-Power BI
-FastAPI
+EDUCATION
 
-https://github.com/user/project
-
-https://portfolio.com
+B.Tech in Artificial Intelligence and Machine Learning
+CGPA: 8.7
 """
 
-jd = """
-Python
-SQL
-Power BI
-FastAPI
+
+job_description = """
+We are looking for a Data Analyst with strong Python,
+SQL and Power BI skills.
+
+Experience with data analytics, dashboards and
+machine learning is preferred.
 """
+
 
 result = ProjectAnalyzer.analyze(
     resume,
-    jd,
+    job_description,
 )
 
-pprint(result)
+pprint(result.model_dump())

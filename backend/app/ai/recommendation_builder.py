@@ -28,21 +28,21 @@ class RecommendationBuilder:
 
     @staticmethod
     def experience_recommendations(
-        years: int,
-        matched_roles: List[str],
+    years: int,
+    matched_roles: List[str],
     ) -> List[str]:
 
         recommendations = []
 
         if years == 0:
             recommendations.append(
-                "Clearly mention internships or professional experience."
-            )
+            "Clearly mention internship or professional experience if applicable."
+        )
 
         if not matched_roles:
             recommendations.append(
-                "Use job titles that closely match the target position."
-            )
+            "Use job titles and experience descriptions that closely match the target position."
+        )
 
         return recommendations
 
