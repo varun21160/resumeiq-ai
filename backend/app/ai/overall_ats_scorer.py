@@ -3,20 +3,29 @@ from typing import Dict
 
 class OverallATSScorer:
     """
-    Calculates the final ATS score from individual category scores.
+    Calculates the final ATS score from analyzer category scores.
 
-    All weights are normalized to a total of 100.
+    All weights add up to exactly 100.
+
+    Current scoring model:
+
+        Skills          35%
+        Experience      20%
+        Projects        15%
+        Education       10%
+        Certifications   5%
+        Resume Quality  15%
+
+    Total             100%
     """
 
     WEIGHTS = {
         "skills": 35,
-        "experience": 25,
+        "experience": 20,
         "projects": 15,
         "education": 10,
         "certifications": 5,
-        "structure": 5,
-        "achievements": 3,
-        "formatting": 2,
+        "resume_quality": 15,
     }
 
     @classmethod
@@ -28,33 +37,48 @@ class OverallATSScorer:
         Calculate the weighted overall ATS score.
 
         Example:
-            {
-                "skills": 90,
-                "experience": 70,
-                "projects": 80,
-                "education": 90,
-                "certifications": 60
-            }
 
-        Missing categories contribute 0.
+        {
+            "skills": 81,
+            "experience": 70,
+            "projects": 100,
+            "education": 100,
+            "certifications": 70,
+            "resume_quality": 88,
+        }
+
+        Returns:
+            Integer score between 0 and 100.
         """
 
-        weighted_score = 0.0
-        total_weight = sum(cls.WEIGHTS.values())
-
-        if total_weight == 0:
-            return 0
+        total = 0.0
 
         for category, weight in cls.WEIGHTS.items():
-            score = scores.get(category, 0)
 
-            # Protect against invalid values.
-            score = max(0.0, min(float(score), 100.0))
+            score = scores.get(
+                category,
+                0,
+            )
 
-            weighted_score += score * weight
+            # Keep every category within a valid range.
+            score = max(
+                0,
+                min(
+                    float(score),
+                    100,
+                ),
+            )
 
-        final_score = weighted_score / total_weight
+            total += (
+                score * weight / 100
+            )
 
         return round(
-            max(0.0, min(final_score, 100.0))
+            max(
+                0,
+                min(
+                    total,
+                    100,
+                ),
+            )
         )

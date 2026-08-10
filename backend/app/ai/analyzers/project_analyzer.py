@@ -6,7 +6,7 @@ from app.schemas.analyzer import AnalyzerResponse
 
 class ProjectAnalyzer:
     """
-    Analyzes projects in a resume.
+    Analyzes project information present in a resume.
 
     Detects:
     - Project section
@@ -29,19 +29,55 @@ class ProjectAnalyzer:
     ]
 
     SECTION_HEADERS = {
-        "education",
+        "summary",
+        "profile",
+        "objective",
+
+        "skills",
+        "technical skills",
+        "core skills",
+        "technical competencies",
+
         "experience",
         "work experience",
         "professional experience",
-        "skills",
-        "technical skills",
+        "employment history",
+        "work history",
+
+        "internship",
+        "internships",
+        "internship experience",
+
+        "education",
+        "academic background",
+        "educational background",
+        "academic qualifications",
+
         "certifications",
         "certificates",
+        "licenses & certifications",
+        "licenses and certifications",
+
         "achievements",
-        "summary",
-        "objective",
-        "internships",
-        "employment",
+        "accomplishments",
+        "awards",
+        "honors",
+        "honours",
+
+        "publications",
+        "research publications",
+        "papers",
+
+        "volunteering",
+        "volunteer experience",
+        "volunteer work",
+
+        "leadership",
+        "leadership experience",
+
+        "extracurricular",
+        "extracurricular activities",
+        "activities",
     }
 
     TECH_KEYWORDS = [
@@ -73,6 +109,11 @@ class ProjectAnalyzer:
         "spark",
         "pyspark",
         "databricks",
+        "hadoop",
+        "kafka",
+        "streamlit",
+        "git",
+        "github",
     ]
 
     ACTION_KEYWORDS = [
@@ -87,6 +128,30 @@ class ProjectAnalyzer:
         "analyzed",
         "developing",
         "building",
+        "integrated",
+        "optimized",
+        "improved",
+        "reduced",
+        "increased",
+        "achieved",
+        "processed",
+    ]
+
+    METRIC_KEYWORDS = [
+        "accuracy",
+        "performance",
+        "efficiency",
+        "time",
+        "records",
+        "users",
+        "customers",
+        "transactions",
+        "revenue",
+        "cost",
+        "churn",
+        "mrr",
+        "arr",
+        "kpi",
     ]
 
     @classmethod
@@ -107,11 +172,9 @@ class ProjectAnalyzer:
             project_section
         )
 
-        matched_technologies = (
-            cls.find_matched_technologies(
-                project_section,
-                jd_lower,
-            )
+        matched_technologies = cls.find_matched_technologies(
+            project_section,
+            jd_lower,
         )
 
         github = cls.has_github(
@@ -122,16 +185,12 @@ class ProjectAnalyzer:
             resume_lower
         )
 
-        measurable_results = (
-            cls.detect_measurable_results(
-                project_section
-            )
+        measurable_results = cls.detect_measurable_results(
+            project_section
         )
 
-        action_keywords = (
-            cls.count_action_keywords(
-                project_section
-            )
+        action_keywords = cls.count_action_keywords(
+            project_section
         )
 
         score = cls.calculate_score(
@@ -164,7 +223,8 @@ class ProjectAnalyzer:
 
         if not measurable_results:
             recommendations.append(
-                "Add measurable project outcomes such as accuracy, performance improvement, time saved, or business impact."
+                "Add measurable project outcomes such as accuracy, "
+                "performance improvement, time saved, or business impact."
             )
 
         if not github:
@@ -192,15 +252,23 @@ class ProjectAnalyzer:
             ),
         )
 
+    # ============================================================
+    # PROJECT SECTION EXTRACTION
+    # ============================================================
+
     @classmethod
     def extract_project_section(
         cls,
         text: str,
     ) -> str:
         """
-        Extract the project section while preserving
-        the original line structure.
+        Extract only the project section.
+
+        Stops when another recognized resume section begins.
         """
+
+        if not text or not text.strip():
+            return ""
 
         lines = [
             line.strip()
@@ -215,31 +283,53 @@ class ProjectAnalyzer:
 
         for index, line in enumerate(lines):
 
-            normalized = line.lower().strip(
-                " :-"
-            )
+            normalized = cls.normalize_heading(line)
 
             if normalized in cls.PROJECT_SECTION_HEADERS:
                 start_index = index + 1
                 break
 
+        # If no Projects heading exists, use the full text.
         if start_index is None:
-            return text
+            return text.strip()
 
         project_lines = []
 
         for line in lines[start_index:]:
 
-            normalized = line.lower().strip(
-                " :-"
-            )
+            normalized = cls.normalize_heading(line)
 
             if normalized in cls.SECTION_HEADERS:
                 break
 
             project_lines.append(line)
 
-        return "\n".join(project_lines)
+        return "\n".join(project_lines).strip()
+
+    @staticmethod
+    def normalize_heading(
+        text: str,
+    ) -> str:
+
+        text = text.lower().strip()
+
+        text = re.sub(
+            r"[:\-|]+$",
+            "",
+            text,
+        )
+
+        text = re.sub(
+            r"\s+",
+            " ",
+            text,
+        )
+
+        return text.strip()
+
+    # ============================================================
+    # PROJECT COUNTING
+    # ============================================================
 
     @classmethod
     def count_projects(
@@ -247,13 +337,17 @@ class ProjectAnalyzer:
         project_section: str,
     ) -> int:
         """
-        Count actual project entries.
+        Count actual project titles.
 
-        A project is identified by a title-like line
-        followed by project-related content.
+        The analyzer assumes a project entry generally looks like:
 
-        Description lines, URLs, and technology
-        metadata are not counted as projects.
+            Project Title
+            Description...
+            Description...
+            GitHub...
+
+        Description lines, URLs, metrics and technology
+        metadata are excluded from project titles.
         """
 
         if not project_section.strip():
@@ -272,69 +366,192 @@ class ProjectAnalyzer:
 
         for index, line in enumerate(lines):
 
-            cleaned = re.sub(
-                r"^[\-\*\u2022\d\.\)\s]+",
-                "",
-                line,
-            ).strip()
-
-            if not cleaned:
+            if not cls.is_project_title(line):
                 continue
 
-            # Ignore URLs.
-            if cls.is_url(cleaned):
-                continue
-
-            # Ignore description/action lines.
-            if cls.is_description_line(cleaned):
-                continue
-
-            # Ignore technology metadata.
-            if cls.is_technology_line(cleaned):
-                continue
-
-            words = cleaned.split()
-
-            # Project title should normally be 2-10 words.
-            if len(words) < 2 or len(words) > 10:
-                continue
-
-            # Look ahead for project-related content.
+            # A valid project title should have project-related
+            # content immediately following it.
             following_lines = lines[
-                index + 1:index + 3
+                index + 1:index + 4
             ]
 
-            has_project_content = any(
-                cls.is_project_content(next_line)
+            if not following_lines:
+                continue
+
+            content_count = sum(
+                1
                 for next_line in following_lines
+                if cls.is_project_content(next_line)
             )
 
-            if has_project_content:
+            if content_count >= 1:
                 project_count += 1
 
         return min(project_count, 10)
 
-    @staticmethod
-    def is_url(
-        text: str,
+    @classmethod
+    def is_project_title(
+        cls,
+        line: str,
+    ) -> bool:
+        """
+        Determine whether a line is likely to be a project title.
+        """
+
+        cleaned = cls.clean_bullet_prefix(line)
+
+        if not cleaned:
+            return False
+
+        if cls.is_url(cleaned):
+            return False
+
+        if cls.is_technology_line(cleaned):
+            return False
+
+        if cls.is_description_line(cleaned):
+            return False
+
+        if cls.is_metric_line(cleaned):
+            return False
+
+        # Do not treat standalone technology names as titles.
+        if cls.is_single_technology(cleaned):
+            return False
+
+        words = cleaned.split()
+
+        # Project titles generally have 1-10 words.
+        if len(words) < 1 or len(words) > 10:
+            return False
+
+        # A sentence ending in punctuation is more likely
+        # to be a description than a project title.
+        if cleaned.endswith(
+            (".", "!", "?")
+        ):
+            return False
+
+        # Very long lowercase sentences are usually descriptions.
+        if len(words) >= 6 and cleaned[0].islower():
+            return False
+
+        return True
+
+    @classmethod
+    def is_project_content(
+        cls,
+        line: str,
     ) -> bool:
 
-        return bool(
-            re.search(
-                r"(https?://|www\.|github\.com)",
-                text,
-                re.IGNORECASE,
+        if cls.is_url(line):
+            return True
+
+        if cls.is_description_line(line):
+            return True
+
+        if cls.is_metric_line(line):
+            return True
+
+        technology_count = sum(
+            1
+            for technology in cls.TECH_KEYWORDS
+            if cls.contains_phrase(
+                line,
+                technology,
             )
         )
+
+        if technology_count >= 1:
+            return True
+
+        return False
+
+    # ============================================================
+    # DESCRIPTION DETECTION
+    # ============================================================
+
+    @classmethod
+    def is_description_line(
+        cls,
+        line: str,
+    ) -> bool:
+
+        cleaned = cls.clean_bullet_prefix(line)
+        lowered = cleaned.lower()
+
+        for keyword in cls.ACTION_KEYWORDS:
+
+            if re.search(
+                rf"\b{re.escape(keyword)}\b",
+                lowered,
+            ):
+                return True
+
+        prefixes = (
+            "using ",
+            "with ",
+            "responsible for ",
+            "worked on ",
+            "this project ",
+            "implemented ",
+            "developed ",
+            "built ",
+            "created ",
+            "designed ",
+            "deployed ",
+            "analyzed ",
+            "automated ",
+            "engineered ",
+            "optimized ",
+        )
+
+        if lowered.startswith(prefixes):
+            return True
+
+        # Sentences longer than 15 words are generally descriptions.
+        if len(cleaned.split()) > 15:
+            return True
+
+        return False
+
+    @classmethod
+    def is_metric_line(
+        cls,
+        line: str,
+    ) -> bool:
+
+        lowered = line.lower()
+
+        if re.search(
+            r"\b\d+(?:\.\d+)?\s*%",
+            lowered,
+        ):
+            return True
+
+        for keyword in cls.METRIC_KEYWORDS:
+
+            if re.search(
+                rf"\b{re.escape(keyword)}\b",
+                lowered,
+            ):
+                if re.search(
+                    r"\d",
+                    lowered,
+                ):
+                    return True
+
+        return False
+
+    # ============================================================
+    # TECHNOLOGY DETECTION
+    # ============================================================
 
     @classmethod
     def is_technology_line(
         cls,
         line: str,
     ) -> bool:
-        """
-        Detect lines that are primarily technology/tool lists.
-        """
 
         lowered = line.lower().strip()
 
@@ -346,6 +563,7 @@ class ProjectAnalyzer:
             "tools:",
             "tools used:",
             "technologies used:",
+            "built with:",
         )
 
         if lowered.startswith(prefixes):
@@ -364,113 +582,30 @@ class ProjectAnalyzer:
         words = len(line.split())
 
         if words > 0 and found >= 2:
+
             if found >= words / 2:
                 return True
 
         return False
 
     @classmethod
-    def is_project_content(
-        cls,
-        line: str,
-    ) -> bool:
-        """
-        Determine whether a line looks like content
-        belonging to a project.
-        """
-
-        lowered = line.lower()
-
-        if cls.is_description_line(line):
-            return True
-
-        if cls.is_url(line):
-            return True
-
-        if cls.detect_measurable_results(line):
-            return True
-
-        technology_count = sum(
-            1
-            for technology in cls.TECH_KEYWORDS
-            if cls.contains_phrase(
-                lowered,
-                technology,
-            )
-        )
-
-        return technology_count >= 1
-
-    @classmethod
-    def is_project_title(
-        cls,
-        line: str,
-    ) -> bool:
-        """
-        Determine whether a line looks like a
-        project title.
-        """
-
-        if cls.is_description_line(line):
-            return False
-
-        if cls.is_url(line):
-            return False
-
-        if cls.is_technology_line(line):
-            return False
-
-        words = line.split()
-
-        if len(words) < 2:
-            return False
-
-        if len(words) > 10:
-            return False
-
-        return True
-
-    @classmethod
-    def is_description_line(
+    def is_single_technology(
         cls,
         line: str,
     ) -> bool:
 
-        lowered = line.lower()
+        normalized = line.lower().strip()
 
-        # Action-oriented descriptions.
-        for keyword in cls.ACTION_KEYWORDS:
+        for technology in cls.TECH_KEYWORDS:
 
-            if re.search(
-                rf"\b{re.escape(keyword)}\b",
-                lowered,
-            ):
+            if normalized == technology.lower():
                 return True
 
-        # Common description prefixes.
-        if lowered.startswith(
-            (
-                "using ",
-                "with ",
-                "responsible for ",
-                "worked on ",
-                "developed ",
-                "built ",
-                "created ",
-                "implemented ",
-                "designed ",
-                "deployed ",
-                "analyzed ",
-                "this project ",
-            )
-        ):
-            return True
-
-        # Long sentences are usually descriptions.
-        if len(line.split()) > 20:
-            return True
-
         return False
+
+    # ============================================================
+    # TECHNOLOGY MATCHING
+    # ============================================================
 
     @classmethod
     def find_matched_technologies(
@@ -516,6 +651,23 @@ class ProjectAnalyzer:
             )
         )
 
+    # ============================================================
+    # LINKS
+    # ============================================================
+
+    @staticmethod
+    def is_url(
+        text: str,
+    ) -> bool:
+
+        return bool(
+            re.search(
+                r"(https?://|www\.|github\.com)",
+                text,
+                re.IGNORECASE,
+            )
+        )
+
     @staticmethod
     def has_github(
         text: str,
@@ -536,11 +688,15 @@ class ProjectAnalyzer:
 
         return bool(
             re.search(
-                r"(portfolio|vercel|netlify|live demo)",
+                r"(portfolio|vercel|netlify|live\s+demo)",
                 text,
                 re.IGNORECASE,
             )
         )
+
+    # ============================================================
+    # MEASURABLE RESULTS
+    # ============================================================
 
     @staticmethod
     def detect_measurable_results(
@@ -550,22 +706,25 @@ class ProjectAnalyzer:
         Detect measurable project outcomes.
 
         Examples:
+
         92% accuracy
-        reduced time by 30%
-        processed 10,000 records
         improved performance by 20%
+        reduced reporting time by 40%
+        processed 10,000 records
         """
 
         patterns = [
             r"\b\d+(?:\.\d+)?\s*%",
+
             (
                 r"\b\d+(?:,\d{3})*\+?\s*"
                 r"(?:users|records|rows|transactions|customers)\b"
             ),
+
             (
                 r"\b(?:improved|increased|reduced|decreased|"
-                r"achieved|reached|maintained)\b"
-                r".{0,60}"
+                r"achieved|reached|maintained|processed)\b"
+                r".{0,80}"
                 r"\b\d+(?:\.\d+)?"
             ),
         ]
@@ -578,6 +737,10 @@ class ProjectAnalyzer:
             )
             for pattern in patterns
         )
+
+    # ============================================================
+    # ACTION VERBS
+    # ============================================================
 
     @classmethod
     def count_action_keywords(
@@ -599,6 +762,25 @@ class ProjectAnalyzer:
 
         return count
 
+    # ============================================================
+    # BULLET / TEXT HELPERS
+    # ============================================================
+
+    @staticmethod
+    def clean_bullet_prefix(
+        line: str,
+    ) -> str:
+
+        return re.sub(
+            r"^[\-\*\u2022\u25CF\d\.\)\s]+",
+            "",
+            line,
+        ).strip()
+
+    # ============================================================
+    # SCORING
+    # ============================================================
+
     @staticmethod
     def calculate_score(
         project_count: int,
@@ -611,30 +793,40 @@ class ProjectAnalyzer:
 
         score = 0
 
+        # --------------------------------------------------------
         # Project quantity
+        # --------------------------------------------------------
         score += min(
-            project_count * 15,
+            project_count * 10,
             30,
         )
 
+        # --------------------------------------------------------
         # Technology relevance
+        # --------------------------------------------------------
         score += min(
             matched_technologies * 8,
             30,
         )
 
+        # --------------------------------------------------------
         # Public evidence
+        # --------------------------------------------------------
         if github:
             score += 10
 
         if portfolio:
             score += 10
 
+        # --------------------------------------------------------
         # Measurable impact
+        # --------------------------------------------------------
         if measurable_results:
             score += 15
 
-        # Strong project language
+        # --------------------------------------------------------
+        # Action-oriented language
+        # --------------------------------------------------------
         if action_keywords >= 2:
             score += 5
 
