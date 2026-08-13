@@ -2,7 +2,14 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
@@ -14,16 +21,87 @@ from app.schemas.resume import (
     ResumeListResponse,
 )
 from app.services.resume_service import ResumeService
-from app.utils.resume_parser import ResumeParser
+from app.resume.document_parser import DocumentParser
 
-router = APIRouter(prefix="/resumes", tags=["Resumes"])
+
+router = APIRouter(
+    prefix="/resumes",
+    tags=["Resumes"],
+)
+
+
+# ============================================================
+# Configuration
+# ============================================================
 
 UPLOAD_DIR = Path("uploads/resumes")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_EXTENSIONS = {".pdf", ".docx"}
+UPLOAD_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
+
+ALLOWED_EXTENSIONS = {
+    ".pdf",
+    ".docx",
+}
+
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 
+
+# ============================================================
+# Helper Functions
+# ============================================================
+
+def get_file_extension(
+    filename: str | None,
+) -> str:
+    """
+    Return the lowercase file extension.
+    """
+
+    if not filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Resume filename is required.",
+        )
+
+    extension = Path(filename).suffix.lower()
+
+    if extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Only PDF and DOCX files are allowed."
+            ),
+        )
+
+    return extension
+
+
+def validate_file_size(
+    contents: bytes,
+) -> None:
+    """
+    Validate uploaded file size.
+    """
+
+    if not contents:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded resume file is empty.",
+        )
+
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File size exceeds the 5 MB limit.",
+        )
+
+
+# ============================================================
+# Upload Resume
+# ============================================================
 
 @router.post(
     "/upload",
@@ -35,35 +113,162 @@ async def upload_resume(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    extension = os.path.splitext(file.filename)[1].lower()
+    """
+    Upload and parse a resume.
 
-    if extension not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail="Only PDF and DOCX files are allowed.",
-        )
+    Supported formats:
+        - PDF
+        - DOCX
 
-    contents = await file.read()
+    Processing flow:
 
-    # Optional: File size validation
-    if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail="File size exceeds 5 MB limit.",
-        )
+        Upload
+            ↓
+        Validate extension
+            ↓
+        Validate size
+            ↓
+        Save file
+            ↓
+        DocumentParser
+            ↓
+        TextCleaner
+            ↓
+        Store resume
+            ↓
+        Return resume information
+    """
 
-    stored_filename = f"{uuid4()}{extension}"
-    file_path = UPLOAD_DIR / stored_filename
+    # --------------------------------------------------------
+    # Validate filename and extension
+    # --------------------------------------------------------
 
-    with open(file_path, "wb") as f:
-        f.write(contents)
+    extension = get_file_extension(
+        file.filename
+    )
+
+    # --------------------------------------------------------
+    # Read uploaded file
+    # --------------------------------------------------------
 
     try:
-        extracted_text = ResumeParser.extract_text(str(file_path))
-        parsing_status = "COMPLETED"
-    except Exception:
-        extracted_text = None
-        parsing_status = "FAILED"
+
+        contents = await file.read()
+
+    except Exception as exc:
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unable to read the uploaded resume.",
+        ) from exc
+
+    # --------------------------------------------------------
+    # Validate file size
+    # --------------------------------------------------------
+
+    validate_file_size(
+        contents
+    )
+
+    # --------------------------------------------------------
+    # Generate unique stored filename
+    # --------------------------------------------------------
+
+    stored_filename = (
+        f"{uuid4()}{extension}"
+    )
+
+    file_path = (
+        UPLOAD_DIR / stored_filename
+    )
+
+    # --------------------------------------------------------
+    # Save uploaded file
+    # --------------------------------------------------------
+
+    try:
+
+        with open(
+            file_path,
+            "wb",
+        ) as output_file:
+
+            output_file.write(
+                contents
+            )
+
+    except Exception as exc:
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to save the uploaded resume.",
+        ) from exc
+
+    # --------------------------------------------------------
+    # Extract resume text
+    # --------------------------------------------------------
+
+    try:
+
+        extracted_text = (
+            DocumentParser.extract_text(
+                str(file_path)
+            )
+        )
+
+    except FileNotFoundError as exc:
+
+        if file_path.exists():
+            file_path.unlink()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Uploaded resume file could not be found.",
+        ) from exc
+
+    except ValueError as exc:
+
+        if file_path.exists():
+            file_path.unlink()
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+
+        if file_path.exists():
+            file_path.unlink()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "An unexpected error occurred while "
+                "processing the resume."
+            ),
+        ) from exc
+
+    # --------------------------------------------------------
+    # Validate extracted text
+    # --------------------------------------------------------
+
+    if not extracted_text.strip():
+
+        if file_path.exists():
+            file_path.unlink()
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "No readable text could be extracted "
+                "from the resume."
+            ),
+        )
+
+    # --------------------------------------------------------
+    # Create Resume database object
+    # --------------------------------------------------------
 
     resume = Resume(
         user_id=current_user.id,
@@ -71,15 +276,44 @@ async def upload_resume(
         stored_filename=stored_filename,
         file_path=str(file_path),
         file_size=len(contents),
-        file_type=extension.replace(".", "").upper(),
+        file_type=extension.replace(
+            ".",
+            "",
+        ).upper(),
         extracted_text=extracted_text,
-        parsing_status=parsing_status,
+        parsing_status="COMPLETED",
     )
+
+    # --------------------------------------------------------
+    # Save through service
+    # --------------------------------------------------------
 
     service = ResumeService()
 
-    return service.create_resume(db, resume)
+    try:
 
+        return service.create_resume(
+            db,
+            resume,
+        )
+
+    except Exception as exc:
+
+        # If database storage fails, don't leave
+        # an orphaned file on disk.
+
+        if file_path.exists():
+            file_path.unlink()
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to save resume information.",
+        ) from exc
+
+
+# ============================================================
+# Get All User Resumes
+# ============================================================
 
 @router.get(
     "",
@@ -89,6 +323,10 @@ def get_resumes(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Return all resumes belonging to the current user.
+    """
+
     service = ResumeService()
 
     resumes = service.get_resumes(
@@ -97,9 +335,13 @@ def get_resumes(
     )
 
     return {
-        "resumes": resumes
+        "resumes": resumes,
     }
 
+
+# ============================================================
+# Get Single Resume
+# ============================================================
 
 @router.get(
     "/{resume_id}",
@@ -110,6 +352,10 @@ def get_resume(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Return a single resume belonging to the current user.
+    """
+
     service = ResumeService()
 
     resume = service.get_resume(
@@ -119,13 +365,18 @@ def get_resume(
     )
 
     if resume is None:
+
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Resume not found.",
         )
 
     return resume
 
+
+# ============================================================
+# Delete Resume
+# ============================================================
 
 @router.delete(
     "/{resume_id}",
@@ -136,6 +387,10 @@ def delete_resume(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Delete a resume and its stored file.
+    """
+
     service = ResumeService()
 
     resume = service.get_resume(
@@ -145,16 +400,44 @@ def delete_resume(
     )
 
     if resume is None:
+
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Resume not found.",
         )
 
-    # Delete file from disk
-    if os.path.exists(resume.file_path):
-        os.remove(resume.file_path)
+    # --------------------------------------------------------
+    # Delete physical file
+    # --------------------------------------------------------
 
+    if resume.file_path:
+
+        file_path = Path(
+            resume.file_path
+        )
+
+        if file_path.exists():
+
+            try:
+                file_path.unlink()
+
+            except OSError as exc:
+
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Unable to delete the stored "
+                        "resume file."
+                    ),
+                ) from exc
+
+    # --------------------------------------------------------
     # Delete database record
-    service.delete_resume(db, resume)
+    # --------------------------------------------------------
 
-    return
+    service.delete_resume(
+        db,
+        resume,
+    )
+
+    return None

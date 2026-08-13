@@ -1,194 +1,61 @@
 import re
 from typing import Optional
 
-from app.ai.recommendation_builder import RecommendationBuilder
 from app.schemas.analyzer import AnalyzerResponse
 
 
 class EducationAnalyzer:
     """
-    Analyzes education information present in a resume.
+    Analyzes education information from a resume.
 
     Detects:
     - Degree
-    - Branch / specialization
-    - CGPA
+    - Academic branch / specialization
+    - CGPA / GPA
     - Graduation year
-    - Branch relevance to the job description
+    - Education section presence
+    - Whether the degree/branch matches the job description
     """
 
     DEGREE_PATTERNS = [
-        (
-            r"\bb\.?\s*tech\b",
-            "B.Tech",
-        ),
-        (
-            r"\bbachelor\s+of\s+technology\b",
-            "B.Tech",
-        ),
-        (
-            r"\bb\.?\s*e\.?\b",
-            "B.E",
-        ),
-        (
-            r"\bbachelor\s+of\s+engineering\b",
-            "B.E",
-        ),
-        (
-            r"\bm\.?\s*tech\b",
-            "M.Tech",
-        ),
-        (
-            r"\bmaster\s+of\s+technology\b",
-            "M.Tech",
-        ),
-        (
-            r"\bm\.?\s*e\.?\b",
-            "M.E",
-        ),
-        (
-            r"\bb\.?\s*sc\b",
-            "B.Sc",
-        ),
-        (
-            r"\bbachelor\s+of\s+science\b",
-            "B.Sc",
-        ),
-        (
-            r"\bm\.?\s*sc\b",
-            "M.Sc",
-        ),
-        (
-            r"\bmaster\s+of\s+science\b",
-            "M.Sc",
-        ),
-        (
-            r"\bbca\b",
-            "BCA",
-        ),
-        (
-            r"\bbachelor\s+of\s+computer\s+applications\b",
-            "BCA",
-        ),
-        (
-            r"\bmca\b",
-            "MCA",
-        ),
-        (
-            r"\bmaster\s+of\s+computer\s+applications\b",
-            "MCA",
-        ),
-        (
-            r"\bph\.?\s*d\b",
-            "PhD",
-        ),
-        (
-            r"\bdoctor\s+of\s+philosophy\b",
-            "PhD",
-        ),
+        ("B.Tech", r"\bb\.?\s*tech\b|\bbachelor\s+of\s+technology\b"),
+        ("B.E", r"\bb\.?\s*e\.?\b|\bbachelor\s+of\s+engineering\b"),
+        ("B.Sc", r"\bb\.?\s*sc\.?\b|\bbachelor\s+of\s+science\b"),
+        ("BCA", r"\bbca\b|\bbachelor\s+of\s+computer\s+applications\b"),
+        ("M.Tech", r"\bm\.?\s*tech\b|\bmaster\s+of\s+technology\b"),
+        ("M.E", r"\bm\.?\s*e\.?\b|\bmaster\s+of\s+engineering\b"),
+        ("M.Sc", r"\bm\.?\s*sc\.?\b|\bmaster\s+of\s+science\b"),
+        ("MCA", r"\bmca\b|\bmaster\s+of\s+computer\s+applications\b"),
+        ("MBA", r"\bmba\b|\bmaster\s+of\s+business\s+administration\b"),
+        ("Ph.D", r"\bph\.?\s*d\.?\b|\bdoctor\s+of\s+philosophy\b"),
     ]
 
-    BRANCH_PATTERNS = [
-        (
-            r"\bartificial\s+intelligence\s+and\s+machine\s+learning\b",
-            "Artificial Intelligence and Machine Learning",
-        ),
-        (
-            r"\bartificial\s+intelligence\s*&\s*machine\s+learning\b",
-            "Artificial Intelligence and Machine Learning",
-        ),
-        (
-            r"\bai\s*(?:and|&)\s*ml\b",
-            "Artificial Intelligence and Machine Learning",
-        ),
-        (
-            r"\baiml\b",
-            "Artificial Intelligence and Machine Learning",
-        ),
-        (
-            r"\bcomputer\s+science\s+and\s+engineering\b",
-            "Computer Science and Engineering",
-        ),
-        (
-            r"\bcomputer\s+science\b",
-            "Computer Science",
-        ),
-        (
-            r"\bcse\b",
-            "Computer Science and Engineering",
-        ),
-        (
-            r"\binformation\s+technology\b",
-            "Information Technology",
-        ),
-        (
-            r"\bdata\s+science\b",
-            "Data Science",
-        ),
-        (
-            r"\bmachine\s+learning\b",
-            "Machine Learning",
-        ),
-        (
-            r"\belectronics\s+and\s+communication\b",
-            "Electronics and Communication Engineering",
-        ),
-        (
-            r"\bece\b",
-            "Electronics and Communication Engineering",
-        ),
-        (
-            r"\bmechanical\s+engineering\b",
-            "Mechanical Engineering",
-        ),
-        (
-            r"\bcivil\s+engineering\b",
-            "Civil Engineering",
-        ),
+    BRANCH_KEYWORDS = [
+        "computer science",
+        "computer science and engineering",
+        "artificial intelligence",
+        "artificial intelligence and machine learning",
+        "machine learning",
+        "data science",
+        "data analytics",
+        "information technology",
+        "information science",
+        "electronics and communication",
+        "electrical engineering",
+        "mechanical engineering",
+        "civil engineering",
+        "software engineering",
+        "cyber security",
+        "cybersecurity",
     ]
 
-    BRANCH_ALIASES = {
-        "Artificial Intelligence and Machine Learning": [
-            "artificial intelligence",
-            "machine learning",
-            "aiml",
-            "ai/ml",
-        ],
-        "Computer Science and Engineering": [
-            "computer science",
-            "cse",
-        ],
-        "Computer Science": [
-            "computer science",
-            "cse",
-        ],
-        "Information Technology": [
-            "information technology",
-            "information tech",
-            "it",
-        ],
-        "Data Science": [
-            "data science",
-            "data analytics",
-        ],
-        "Machine Learning": [
-            "machine learning",
-            "ml",
-        ],
-        "Electronics and Communication Engineering": [
-            "electronics and communication",
-            "electronics communication",
-            "ece",
-        ],
-        "Mechanical Engineering": [
-            "mechanical engineering",
-            "mechanical",
-        ],
-        "Civil Engineering": [
-            "civil engineering",
-            "civil",
-        ],
-    }
+    EDUCATION_HEADERS = [
+        "education",
+        "academic background",
+        "educational background",
+        "academic qualifications",
+        "qualifications",
+    ]
 
     @classmethod
     def analyze(
@@ -196,61 +63,65 @@ class EducationAnalyzer:
         resume_text: str,
         job_description: str,
     ) -> AnalyzerResponse:
-        """
-        Analyze education information against
-        the target job description.
-        """
 
-        resume = resume_text.lower()
-        jd = job_description.lower()
+        resume_text = resume_text or ""
+        job_description = job_description or ""
 
-        degree = cls.extract_degree(
-            resume
+        education_text = cls.extract_education_section(
+            resume_text
         )
 
-        branch = cls.extract_branch(
-            resume
+        search_text = education_text or resume_text
+
+        degree = cls.detect_degree(search_text)
+        branch = cls.detect_branch(search_text)
+        cgpa = cls.detect_cgpa(search_text)
+        graduation_year = cls.detect_graduation_year(
+            search_text
         )
 
-        cgpa = cls.extract_cgpa(
-            resume
-        )
-
-        graduation_year = (
-            cls.extract_graduation_year(
-                resume
-            )
-        )
-
-        branch_matches_jd = (
-            cls.branch_matches_job(
-                branch,
-                jd,
-            )
+        branch_matches_job = cls.branch_matches_job(
+            branch,
+            job_description,
         )
 
         score = cls.calculate_score(
             degree=degree,
             branch=branch,
             cgpa=cgpa,
-            branch_matches_jd=branch_matches_jd,
             graduation_year=graduation_year,
+            branch_matches_job=branch_matches_job,
         )
 
-        recommendations = (
-            RecommendationBuilder
-            .education_recommendations(
-                degree=degree,
-                branch=branch,
-                cgpa=cgpa,
+        recommendations = []
+
+        if not degree:
+            recommendations.append(
+                "Mention your degree clearly, such as B.Tech, B.E., B.Sc., or equivalent."
             )
-        )
 
-        # Graduation year is useful information,
-        # so add a recommendation when it is missing.
+        if not branch:
+            recommendations.append(
+                "Mention your academic specialization or branch."
+            )
+
+        if cgpa is None:
+            recommendations.append(
+                "Mention your CGPA or GPA if it strengthens your application."
+            )
+
         if graduation_year is None:
             recommendations.append(
                 "Mention your graduation year or expected graduation year."
+            )
+
+        if (
+            branch
+            and job_description.strip()
+            and not branch_matches_job
+        ):
+            recommendations.append(
+                "Highlight coursework or academic projects relevant to the target role."
             )
 
         return AnalyzerResponse(
@@ -260,7 +131,7 @@ class EducationAnalyzer:
                 "branch": branch,
                 "cgpa": cgpa,
                 "graduation_year": graduation_year,
-                "branch_matches_job": branch_matches_jd,
+                "branch_matches_job": branch_matches_job,
             },
             recommendations=sorted(
                 set(recommendations)
@@ -268,151 +139,116 @@ class EducationAnalyzer:
         )
 
     @classmethod
-    def extract_degree(
+    def extract_education_section(
+        cls,
+        text: str,
+    ) -> str:
+
+        lines = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip()
+        ]
+
+        if not lines:
+            return ""
+
+        start_index: Optional[int] = None
+
+        for index, line in enumerate(lines):
+            normalized = cls.normalize(line)
+
+            if normalized in cls.EDUCATION_HEADERS:
+                start_index = index + 1
+                break
+
+        if start_index is None:
+            return ""
+
+        stop_headers = {
+            "skills",
+            "technical skills",
+            "projects",
+            "experience",
+            "work experience",
+            "professional experience",
+            "internship",
+            "internships",
+            "certifications",
+            "certificates",
+            "achievements",
+            "publications",
+            "volunteering",
+            "leadership",
+            "extracurricular",
+            "extracurricular activities",
+        }
+
+        section_lines = []
+
+        for line in lines[start_index:]:
+            normalized = cls.normalize(line)
+
+            if normalized in stop_headers:
+                break
+
+            section_lines.append(line)
+
+        return "\n".join(section_lines).strip()
+
+    @classmethod
+    def detect_degree(
         cls,
         text: str,
     ) -> Optional[str]:
-        """
-        Extract the first recognized degree.
-        """
 
-        for pattern, degree in cls.DEGREE_PATTERNS:
-
+        for degree_name, pattern in cls.DEGREE_PATTERNS:
             if re.search(
                 pattern,
                 text,
                 re.IGNORECASE,
             ):
-                return degree
+                return degree_name
 
         return None
 
     @classmethod
-    def extract_branch(
+    def detect_branch(
         cls,
         text: str,
     ) -> Optional[str]:
-        """
-        Extract the first recognized branch/specialization.
 
-        Longer and more specific patterns are checked
-        before shorter patterns to avoid incorrect matches.
-        """
+        lowered = text.lower()
 
-        patterns = sorted(
-            cls.BRANCH_PATTERNS,
-            key=lambda item: len(item[0]),
+        # Check longer phrases first.
+        keywords = sorted(
+            cls.BRANCH_KEYWORDS,
+            key=len,
             reverse=True,
         )
 
-        for pattern, branch in patterns:
-
+        for branch in keywords:
             if re.search(
-                pattern,
-                text,
+                rf"\b{re.escape(branch)}\b",
+                lowered,
                 re.IGNORECASE,
             ):
-                return branch
+                return branch.title()
 
         return None
 
     @staticmethod
-    def extract_cgpa(
+    def detect_cgpa(
         text: str,
     ) -> Optional[float]:
-        """
-        Extract CGPA from common resume formats.
-
-        Supported examples:
-
-        CGPA: 8.7
-        CGPA - 8.7
-        CGPA 8.7
-        CGPA of 8.7
-        8.7/10
-        8.7 out of 10
-        """
 
         patterns = [
-            r"\bcgpa\s*(?:score)?\s*[:\-]?\s*(\d+(?:\.\d+)?)",
-            r"\bcgpa\s+of\s+(\d+(?:\.\d+)?)",
+            r"\bCGPA\s*[:\-]?\s*(\d+(?:\.\d+)?)",
+            r"\bGPA\s*[:\-]?\s*(\d+(?:\.\d+)?)",
             r"\b(\d+(?:\.\d+)?)\s*/\s*10\b",
-            r"\b(\d+(?:\.\d+)?)\s+out\s+of\s+10\b",
         ]
 
         for pattern in patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE,
-            )
-
-            if not match:
-                continue
-
-            try:
-                value = float(
-                    match.group(1)
-                )
-            except ValueError:
-                continue
-
-            if 0 <= value <= 10:
-                return value
-
-        return None
-
-    @staticmethod
-    def extract_graduation_year(
-        text: str,
-    ) -> Optional[int]:
-        """
-        Extract graduation or expected graduation year.
-
-        Examples:
-
-        Graduation Year: 2027
-        Graduated: 2025
-        Expected Graduation: 2027
-        Passing Year: 2027
-        """
-
-        patterns = [
-            (
-                r"\bgraduation\s*year\s*[:\-]?\s*"
-                r"(20\d{2})\b"
-            ),
-            (
-                r"\bgraduated\s*(?:in|:|-)?\s*"
-                r"(20\d{2})\b"
-            ),
-            (
-                r"\bgraduation\s*[:\-]?\s*"
-                r"(20\d{2})\b"
-            ),
-            (
-                r"\bexpected\s+graduation"
-                r"(?:\s+year)?\s*[:\-]?\s*"
-                r"(20\d{2})\b"
-            ),
-            (
-                r"\bexpected\s+to\s+graduate"
-                r"(?:\s+in)?\s*[:\-]?\s*"
-                r"(20\d{2})\b"
-            ),
-            (
-                r"\bpassing\s+year\s*[:\-]?\s*"
-                r"(20\d{2})\b"
-            ),
-            (
-                r"\bpass(?:ing)?\s*out\s*year"
-                r"\s*[:\-]?\s*(20\d{2})\b"
-            ),
-        ]
-
-        for pattern in patterns:
-
             match = re.search(
                 pattern,
                 text,
@@ -420,9 +256,66 @@ class EducationAnalyzer:
             )
 
             if match:
-                return int(
-                    match.group(1)
-                )
+                try:
+                    value = float(match.group(1))
+
+                    if 0 <= value <= 10:
+                        return value
+
+                except ValueError:
+                    pass
+
+        return None
+
+    @staticmethod
+    def detect_graduation_year(
+        text: str,
+    ) -> Optional[int]:
+
+        # Handles:
+        # 2023-2027
+        # 2023 – 2027
+        # 2023 - Present
+        # Expected Graduation: 2027
+        # Graduation Year: 2027
+        # 2027
+
+        explicit_patterns = [
+            r"(?:graduation|graduating|expected\s+graduation)"
+            r"(?:\s+year)?\s*[:\-]?\s*(20\d{2})",
+
+            r"(?:expected|class\s+of)\s+(20\d{2})",
+        ]
+
+        for pattern in explicit_patterns:
+            match = re.search(
+                pattern,
+                text,
+                re.IGNORECASE,
+            )
+
+            if match:
+                return int(match.group(1))
+
+        # Academic range such as 2023-2027.
+        range_patterns = [
+            r"\b(20\d{2})\s*[-–—]\s*(20\d{2})\b",
+            r"\b(20\d{2})\s+to\s+(20\d{2})\b",
+        ]
+
+        for pattern in range_patterns:
+            match = re.search(
+                pattern,
+                text,
+                re.IGNORECASE,
+            )
+
+            if match:
+                start_year = int(match.group(1))
+                end_year = int(match.group(2))
+
+                if end_year >= start_year:
+                    return end_year
 
         return None
 
@@ -432,46 +325,54 @@ class EducationAnalyzer:
         branch: Optional[str],
         job_description: str,
     ) -> bool:
-        """
-        Determine whether the candidate's branch is
-        relevant to the target job.
-
-        Exact word boundaries are used so that short
-        aliases such as 'IT' do not accidentally match
-        unrelated words.
-        """
 
         if not branch:
             return False
 
-        aliases = cls.BRANCH_ALIASES.get(
-            branch,
-            [branch],
-        )
+        if not job_description.strip():
+            return True
 
-        for alias in aliases:
+        branch_lower = branch.lower()
+        jd_lower = job_description.lower()
 
-            # Special handling for slash aliases.
-            if "/" in alias:
-                escaped_alias = re.escape(
-                    alias
-                )
-            else:
-                escaped_alias = re.escape(
-                    alias
-                )
+        # Direct match.
+        if branch_lower in jd_lower:
+            return True
 
-            pattern = (
-                rf"(?<!\w)"
-                rf"{escaped_alias}"
-                rf"(?!\w)"
+        # Related academic terms.
+        related_groups = [
+            {
+                "artificial intelligence",
+                "machine learning",
+                "data science",
+                "data analytics",
+                "computer science",
+            },
+            {
+                "computer science",
+                "computer science and engineering",
+                "information technology",
+                "information science",
+            },
+            {
+                "electronics and communication",
+                "electrical engineering",
+            },
+        ]
+
+        for group in related_groups:
+
+            branch_matches_group = any(
+                term in branch_lower
+                for term in group
             )
 
-            if re.search(
-                pattern,
-                job_description,
-                re.IGNORECASE,
-            ):
+            jd_matches_group = any(
+                term in jd_lower
+                for term in group
+            )
+
+            if branch_matches_group and jd_matches_group:
                 return True
 
         return False
@@ -481,54 +382,51 @@ class EducationAnalyzer:
         degree: Optional[str],
         branch: Optional[str],
         cgpa: Optional[float],
-        branch_matches_jd: bool,
         graduation_year: Optional[int],
+        branch_matches_job: bool,
     ) -> int:
-        """
-        Calculate education score.
-
-        Maximum:
-        - Degree: 30
-        - Branch: 25
-        - Branch relevance: 15
-        - CGPA: 20
-        - Graduation year: 10
-        """
 
         score = 0
 
         # Degree
         if degree:
-            score += 30
+            score += 35
 
-        # Branch/specialization
+        # Branch / specialization
         if branch:
-            score += 25
+            score += 20
 
-        # Relevance to target job
-        if branch_matches_jd:
+        # Relevant branch
+        if branch_matches_job:
             score += 15
 
-        # Academic performance
+        # CGPA
         if cgpa is not None:
-
-            if cgpa >= 8.5:
-                score += 20
-
-            elif cgpa >= 7.5:
-                score += 15
-
-            elif cgpa >= 6.5:
-                score += 10
-
-            elif cgpa >= 5.5:
-                score += 5
+            score += 15
 
         # Graduation year
         if graduation_year is not None:
-            score += 10
+            score += 15
 
-        return min(
-            score,
-            100,
+        return min(score, 100)
+
+    @staticmethod
+    def normalize(
+        text: str,
+    ) -> str:
+
+        text = text.lower().strip()
+
+        text = re.sub(
+            r"[:\-|]+$",
+            "",
+            text,
         )
+
+        text = re.sub(
+            r"\s+",
+            " ",
+            text,
+        )
+
+        return text.strip()

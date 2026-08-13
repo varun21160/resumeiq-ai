@@ -1,31 +1,112 @@
 from sqlalchemy.orm import Session
 
-from app.ai.ats_engine import ATSEngine
-from app.repositories.resume_repository import ResumeRepository
+from app.models.ats_analysis import ATSAnalysis
 
 
 class ATSService:
+    """
+    Handles database operations related to ATS analyses.
+    """
 
-    def __init__(self):
-        self.repository = ResumeRepository()
+    @staticmethod
+    def _serialize_analyzer(value):
+        """
+        Convert AnalyzerResponse / Pydantic objects
+        into JSON-serializable dictionaries.
+        """
 
-    def analyze_resume(
-        self,
+        if hasattr(value, "model_dump"):
+            return value.model_dump()
+
+        if hasattr(value, "dict"):
+            return value.dict()
+
+        if isinstance(value, dict):
+            return {
+                key: ATSService._serialize_analyzer(item)
+                for key, item in value.items()
+            }
+
+        if isinstance(value, list):
+            return [
+                ATSService._serialize_analyzer(item)
+                for item in value
+            ]
+
+        return value
+
+    @staticmethod
+    def create_analysis(
         db: Session,
-        resume_id: str,
         user_id: str,
+        resume_id: str | None,
         job_description: str,
-    ):
-        resume = self.repository.get_by_id(
-            db,
-            resume_id,
-            user_id,
+        report,
+    ) -> ATSAnalysis:
+
+        serialized_analysis = ATSService._serialize_analyzer(
+            report.analysis
         )
 
-        if resume is None:
-            return None
+        serialized_category_scores = ATSService._serialize_analyzer(
+            report.category_scores
+        )
 
-        return ATSEngine.analyze(
-            resume.extracted_text or "",
-            job_description,
+        serialized_recommendations = ATSService._serialize_analyzer(
+            report.recommendations
+        )
+
+        analysis = ATSAnalysis(
+            user_id=user_id,
+            resume_id=resume_id,
+            job_description=job_description,
+            overall_score=report.overall_score,
+            category_scores=serialized_category_scores,
+            analysis=serialized_analysis,
+            recommendations=serialized_recommendations,
+        )
+
+        db.add(analysis)
+
+        try:
+            db.commit()
+            db.refresh(analysis)
+
+        except Exception:
+            db.rollback()
+            raise
+
+        return analysis
+
+    @staticmethod
+    def get_analysis(
+        db: Session,
+        analysis_id: str,
+        user_id: str,
+    ) -> ATSAnalysis | None:
+
+        return (
+            db.query(ATSAnalysis)
+            .filter(
+                ATSAnalysis.id == analysis_id,
+                ATSAnalysis.user_id == user_id,
+            )
+            .first()
+        )
+
+    @staticmethod
+    def get_user_analyses(
+        db: Session,
+        user_id: str,
+    ) -> list[ATSAnalysis]:
+
+        return (
+            db.query(ATSAnalysis)
+            .filter(
+                ATSAnalysis.user_id == user_id,
+            )
+            .order_by(
+                ATSAnalysis.created_at.desc()
+            )
+            .all()
         )

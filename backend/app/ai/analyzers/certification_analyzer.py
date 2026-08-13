@@ -1,86 +1,121 @@
+import re
 from typing import List
 
-from app.ai.recommendation_builder import RecommendationBuilder
 from app.schemas.analyzer import AnalyzerResponse
 
 
 class CertificationAnalyzer:
     """
-    Analyze certifications in a resume.
+    Deterministic certification analyzer.
 
     Detects:
+    - Certification section
+    - Individual certification entries
     - Certification providers
-    - Certification-related keywords
-    - Relevant certifications based on the job description
-    - Certification recommendations
+    - Relevant certifications based on JD
     """
 
-    CERTIFICATION_KEYWORDS = [
-        "aws certified",
-        "aws certification",
-        "microsoft certified",
-        "microsoft certification",
-        "azure certification",
-        "azure certified",
-        "google cloud certification",
-        "google certified",
-        "oracle certification",
-        "oracle certified",
-        "cisco certification",
-        "cisco certified",
-        "ibm certification",
-        "ibm certified",
-        "coursera",
-        "udemy",
-        "nptel",
-        "edx",
-        "linkedin learning",
-        "hackerrank",
-        "meta certification",
-        "meta certified",
-        "databricks certification",
-        "databricks certified",
-        "snowflake certification",
-        "snowflake certified",
-        "power bi certification",
-        "power bi certified",
-        "tableau certification",
-        "tableau certified",
-    ]
-
-    CERTIFICATION_SECTION_HEADERS = [
+    CERTIFICATION_HEADERS = {
         "certifications",
         "certification",
         "certificates",
         "certificate",
-        "professional certifications",
-        "professional certificates",
         "licenses & certifications",
         "licenses and certifications",
-    ]
+        "professional certifications",
+        "certificates and training",
+    }
 
     SECTION_HEADERS = {
         "education",
         "experience",
         "work experience",
         "professional experience",
+        "employment",
+        "employment history",
+        "internship",
+        "internships",
+        "internship experience",
         "projects",
+        "project experience",
+        "academic projects",
+        "technical projects",
         "skills",
         "technical skills",
         "achievements",
+        "accomplishments",
+        "awards",
+        "honors",
+        "honours",
+        "publications",
+        "research publications",
+        "papers",
+        "volunteering",
+        "volunteer experience",
+        "leadership",
+        "leadership experience",
+        "extracurricular",
+        "extracurricular activities",
+        "activities",
         "summary",
         "objective",
-        "internships",
-        "employment",
+        "contact",
+        "contact information",
+        "references",
     }
 
-    CERTIFICATION_PHRASES = [
-        "certified",
-        "certification",
-        "certificate",
-        "certification course",
-        "professional certificate",
-        "course completion",
+    CERTIFICATION_PROVIDERS = [
+        "nptel",
+        "hackerrank",
+        "coursera",
+        "udemy",
+        "simplilearn",
+        "cisco",
+        "infosys springboard",
+        "tata",
+        "tata group",
+        "forage",
+        "google",
+        "microsoft",
+        "aws",
+        "amazon web services",
+        "ibm",
+        "oracle",
+        "meta",
+        "linkedin learning",
+        "hp life",
+        "accenture",
+        "deloitte",
+        "pwc",
+        "ey",
+        "kpmg",
+    ]
+
+    RELEVANCE_KEYWORDS = [
+        "data",
+        "analytics",
+        "data analytics",
+        "data science",
+        "python",
+        "sql",
+        "power bi",
+        "tableau",
+        "excel",
+        "machine learning",
+        "artificial intelligence",
+        "ai",
+        "generative ai",
+        "genai",
+        "statistics",
+        "business intelligence",
+        "business analytics",
+        "cloud",
+        "aws",
+        "azure",
+        "gcp",
+        "database",
+        "programming",
+        "software",
     ]
 
     @classmethod
@@ -89,80 +124,72 @@ class CertificationAnalyzer:
         resume_text: str,
         job_description: str,
     ) -> AnalyzerResponse:
-        """
-        Analyze certifications in the resume against
-        the target job description.
-        """
 
-        certification_section = (
-            cls.extract_certification_section(
+        resume_text = resume_text or ""
+        job_description = job_description or ""
+
+        certification_section = cls.extract_certification_section(
+            resume_text
+        )
+
+        certifications = cls.extract_certifications(
+            certification_section
+        )
+
+        # Fallback only when the section itself is not usable.
+        if not certifications:
+            certifications = cls.extract_certifications_from_text(
                 resume_text
             )
+
+        relevant_certifications = cls.find_relevant_certifications(
+            certifications,
+            job_description,
         )
 
-        resume_lower = resume_text.lower()
-        jd_lower = job_description.lower()
-
-        found_certifications = (
-            cls.extract_certifications(
-                certification_section,
-                resume_lower,
-            )
-        )
-
-        relevant_certifications = (
-            cls.find_relevant_certifications(
-                found_certifications,
-                jd_lower,
-            )
-        )
+        certification_count = len(certifications)
 
         score = cls.calculate_score(
-            total=len(found_certifications),
-            relevant=len(
-                relevant_certifications
-            ),
+            certification_count=certification_count,
+            relevant_count=len(relevant_certifications),
         )
 
-        recommendations = (
-            RecommendationBuilder
-            .certification_recommendations(
-                certification_count=len(
-                    found_certifications
-                ),
-                relevant_count=len(
-                    relevant_certifications
-                ),
+        recommendations = []
+
+        if certification_count == 0:
+            recommendations.append(
+                "Add relevant certifications if they strengthen your application."
             )
-        )
+
+        elif not relevant_certifications:
+            recommendations.append(
+                "Add certifications that align more closely with the job description."
+            )
+
+        elif certification_count < 2:
+            recommendations.append(
+                "Consider earning more certifications related to your target role."
+            )
 
         return AnalyzerResponse(
             score=score,
             details={
-                "certification_count": len(
-                    found_certifications
-                ),
-                "certifications": found_certifications,
-                "relevant_certifications": (
-                    relevant_certifications
-                ),
+                "certification_count": certification_count,
+                "certifications": certifications,
+                "relevant_certifications": relevant_certifications,
             },
-            recommendations=recommendations,
+            recommendations=sorted(set(recommendations)),
         )
+
+    # ============================================================
+    # SECTION EXTRACTION
+    # ============================================================
 
     @classmethod
     def extract_certification_section(
         cls,
         text: str,
     ) -> str:
-        """
-        Extract the certification section while
-        preserving line structure.
-
-        If no certification section exists,
-        the complete resume is returned so that
-        inline certifications can still be detected.
-        """
 
         lines = [
             line.strip()
@@ -177,80 +204,267 @@ class CertificationAnalyzer:
 
         for index, line in enumerate(lines):
 
-            normalized = (
-                line.lower()
-                .strip(" :-")
-            )
+            normalized = cls.normalize_heading(line)
 
-            if normalized in (
-                cls.CERTIFICATION_SECTION_HEADERS
-            ):
+            if normalized in cls.CERTIFICATION_HEADERS:
                 start_index = index + 1
                 break
 
         if start_index is None:
-            return text
+            return ""
 
-        certification_lines = []
+        section_lines = []
 
         for line in lines[start_index:]:
 
-            normalized = (
-                line.lower()
-                .strip(" :-")
-            )
+            normalized = cls.normalize_heading(line)
 
             if normalized in cls.SECTION_HEADERS:
                 break
 
-            certification_lines.append(line)
+            section_lines.append(line)
 
-        return "\n".join(
-            certification_lines
-        )
+        return "\n".join(section_lines).strip()
+
+    # ============================================================
+    # CERTIFICATION EXTRACTION
+    # ============================================================
 
     @classmethod
     def extract_certifications(
         cls,
-        certification_section: str,
-        complete_resume: str,
+        section_text: str,
     ) -> List[str]:
-        """
-        Extract certification names.
 
-        Section-based detection is preferred because it
-        reduces false positives from skills and projects.
-        """
+        if not section_text.strip():
+            return []
 
-        found = []
+        certifications = []
 
-        # First inspect the certification section.
-        for certification in cls.CERTIFICATION_KEYWORDS:
+        lines = [
+            line.strip()
+            for line in section_text.splitlines()
+            if line.strip()
+        ]
 
-            if cls.contains_phrase(
-                certification_section,
-                certification,
+        for line in lines:
+
+            cleaned = re.sub(
+                r"^[\-\*\u2022\d\.\)\s]+",
+                "",
+                line,
+            ).strip()
+
+            if not cleaned:
+                continue
+
+            # Ignore obvious date lines.
+            if re.fullmatch(
+                r"(19|20)\d{2}"
+                r"(?:\s*[-–—]\s*"
+                r"(?:(19|20)\d{2}|present))?",
+                cleaned,
+                re.IGNORECASE,
             ):
-                found.append(certification)
+                continue
 
-        # If no certification section was detected,
-        # inspect the complete resume for explicit
-        # certification language.
-        if not found:
-
-            for certification in (
-                cls.CERTIFICATION_KEYWORDS
+            # Ignore URLs.
+            if re.search(
+                r"https?://|www\.|github\.com|linkedin\.com",
+                cleaned,
+                re.IGNORECASE,
             ):
+                continue
 
-                if cls.contains_phrase(
-                    complete_resume,
-                    certification,
-                ):
-                    found.append(certification)
+            # Ignore contact information accidentally placed
+            # inside the certification section.
+            if cls.is_contact_line(cleaned):
+                continue
 
-        return sorted(
-            set(found)
+            # Ignore obvious non-certification headings.
+            if cls.normalize_heading(cleaned) in cls.SECTION_HEADERS:
+                continue
+
+            # A certification entry must look like a certification.
+            if cls.looks_like_certification(cleaned):
+                certifications.append(
+                    cls.normalize_certification(cleaned)
+                )
+
+        return cls.unique_preserve_order(certifications)
+
+    # ============================================================
+    # FALLBACK EXTRACTION
+    # ============================================================
+
+    @classmethod
+    def extract_certifications_from_text(
+        cls,
+        text: str,
+    ) -> List[str]:
+
+        lines = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip()
+        ]
+
+        certifications = []
+
+        for line in lines:
+
+            cleaned = re.sub(
+                r"^[\-\*\u2022\d\.\)\s]+",
+                "",
+                line,
+            ).strip()
+
+            if not cleaned:
+                continue
+
+            if cls.is_contact_line(cleaned):
+                continue
+
+            if cls.looks_like_certification(cleaned):
+                certifications.append(
+                    cls.normalize_certification(cleaned)
+                )
+
+        return cls.unique_preserve_order(certifications)
+
+    # ============================================================
+    # CERTIFICATION VALIDATION
+    # ============================================================
+
+    @classmethod
+    def looks_like_certification(
+        cls,
+        line: str,
+    ) -> bool:
+
+        lowered = line.lower()
+
+        provider_found = any(
+            provider in lowered
+            for provider in cls.CERTIFICATION_PROVIDERS
         )
+
+        certification_word_found = any(
+            keyword in lowered
+            for keyword in [
+                "certification",
+                "certificate",
+                "certified",
+                "course",
+                "job simulation",
+                "virtual experience",
+                "professional certificate",
+            ]
+        )
+
+        # Known provider + reasonable title.
+        if provider_found and len(line.split()) >= 2:
+            return True
+
+        # Generic certification title.
+        if certification_word_found:
+            return True
+
+        return False
+
+    # ============================================================
+    # CONTACT FILTER
+    # ============================================================
+
+    @staticmethod
+    def is_contact_line(
+        line: str,
+    ) -> bool:
+
+        lowered = line.lower().strip()
+
+        # Email
+        if re.search(
+            r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+            line,
+            re.IGNORECASE,
+        ):
+            return True
+
+        # Phone numbers
+        if re.search(
+            r"(?:\+?\d[\d\s().-]{8,}\d)",
+            line,
+        ):
+            return True
+
+        # Contact headings
+        if lowered in {
+            "contact",
+            "contact information",
+            "phone",
+            "email",
+            "mobile",
+            "linkedin",
+            "github",
+        }:
+            return True
+
+        return False
+
+    # ============================================================
+    # NORMALIZATION
+    # ============================================================
+
+    @staticmethod
+    def normalize_heading(
+        text: str,
+    ) -> str:
+
+        text = text.strip().lower()
+
+        text = re.sub(
+            r"^[\-\*\u2022\d\.\)\s]+",
+            "",
+            text,
+        )
+
+        text = re.sub(
+            r"[:|]+$",
+            "",
+            text,
+        )
+
+        text = re.sub(
+            r"\s+",
+            " ",
+            text,
+        )
+
+        return text.strip()
+
+    @staticmethod
+    def normalize_certification(
+        text: str,
+    ) -> str:
+
+        text = re.sub(
+            r"^[\-\*\u2022]+",
+            "",
+            text,
+        ).strip()
+
+        text = re.sub(
+            r"\s+",
+            " ",
+            text,
+        )
+
+        return text
+
+    # ============================================================
+    # RELEVANCE
+    # ============================================================
 
     @classmethod
     def find_relevant_certifications(
@@ -258,192 +472,123 @@ class CertificationAnalyzer:
         certifications: List[str],
         job_description: str,
     ) -> List[str]:
-        """
-        Determine which detected certifications are
-        relevant to the target job.
 
-        A certification is considered relevant when
-        its important keywords appear in the JD.
-        """
+        if not certifications:
+            return []
+
+        jd_lower = job_description.lower()
+
+        jd_keywords = [
+            keyword
+            for keyword in cls.RELEVANCE_KEYWORDS
+            if keyword in jd_lower
+        ]
 
         relevant = []
 
         for certification in certifications:
 
-            if cls.contains_phrase(
-                job_description,
-                certification,
-            ):
-                relevant.append(
-                    certification
-                )
-                continue
+            cert_lower = certification.lower()
 
-            # Handle provider/tool relationships.
-            provider_keywords = (
-                cls.get_related_keywords(
-                    certification
+            provider_match = any(
+                provider in cert_lower
+                and provider in jd_lower
+                for provider in cls.CERTIFICATION_PROVIDERS
+            )
+
+            keyword_match = any(
+                keyword in cert_lower
+                for keyword in jd_keywords
+            )
+
+            strong_match = (
+                (
+                    "nptel" in cert_lower
+                    and (
+                        "python" in cert_lower
+                        or "data" in cert_lower
+                    )
+                )
+                or (
+                    "hackerrank" in cert_lower
+                    and "sql" in cert_lower
+                )
+                or (
+                    "tata" in cert_lower
+                    and (
+                        "data" in cert_lower
+                        or "genai" in cert_lower
+                        or "analytics" in cert_lower
+                    )
+                )
+                or (
+                    "cisco" in cert_lower
+                    and (
+                        "data" in cert_lower
+                        or "ai" in cert_lower
+                    )
+                )
+                or (
+                    "power bi" in cert_lower
+                    and "power bi" in jd_lower
                 )
             )
 
-            if any(
-                cls.contains_phrase(
-                    job_description,
-                    keyword,
-                )
-                for keyword in provider_keywords
+            if (
+                provider_match
+                or keyword_match
+                or strong_match
             ):
-                relevant.append(
-                    certification
-                )
+                relevant.append(certification)
 
-        return sorted(
-            set(relevant)
-        )
+        return cls.unique_preserve_order(relevant)
 
-    @staticmethod
-    def get_related_keywords(
-        certification: str,
-    ) -> List[str]:
-        """
-        Map certifications to related technologies
-        so relevance is not dependent on an exact
-        phrase match.
-        """
-
-        mappings = {
-            "aws certified": [
-                "aws",
-                "amazon web services",
-                "cloud",
-            ],
-            "aws certification": [
-                "aws",
-                "amazon web services",
-                "cloud",
-            ],
-            "azure certification": [
-                "azure",
-                "microsoft azure",
-                "cloud",
-            ],
-            "azure certified": [
-                "azure",
-                "microsoft azure",
-                "cloud",
-            ],
-            "google cloud certification": [
-                "google cloud",
-                "gcp",
-                "cloud",
-            ],
-            "google certified": [
-                "google cloud",
-                "gcp",
-            ],
-            "power bi certification": [
-                "power bi",
-                "business intelligence",
-                "bi",
-            ],
-            "power bi certified": [
-                "power bi",
-                "business intelligence",
-                "bi",
-            ],
-            "tableau certification": [
-                "tableau",
-                "data visualization",
-                "visualization",
-            ],
-            "tableau certified": [
-                "tableau",
-                "data visualization",
-                "visualization",
-            ],
-            "databricks certification": [
-                "databricks",
-                "spark",
-                "pyspark",
-            ],
-            "databricks certified": [
-                "databricks",
-                "spark",
-                "pyspark",
-            ],
-            "snowflake certification": [
-                "snowflake",
-                "data warehouse",
-            ],
-            "snowflake certified": [
-                "snowflake",
-                "data warehouse",
-            ],
-            "cisco certification": [
-                "cisco",
-                "networking",
-                "ccna",
-            ],
-            "cisco certified": [
-                "cisco",
-                "networking",
-                "ccna",
-            ],
-        }
-
-        return mappings.get(
-            certification,
-            [certification],
-        )
+    # ============================================================
+    # SCORE
+    # ============================================================
 
     @staticmethod
-    def contains_phrase(
-        text: str,
-        phrase: str,
-    ) -> bool:
-        """
-        Safely check whether a phrase exists
-        in the supplied text.
-        """
-
-        text = text.lower()
-        phrase = phrase.lower()
-
-        return phrase in text
-
-    @classmethod
     def calculate_score(
-        cls,
-        total: int,
-        relevant: int,
+        certification_count: int,
+        relevant_count: int,
     ) -> int:
-        """
-        Calculate certification score.
 
-        Relevant certifications receive more weight
-        than simply having many certifications.
-
-        Maximum:
-        - 30 points for certification coverage
-        - 70 points for relevant certifications
-        """
-
-        if total == 0:
+        if certification_count == 0:
             return 0
 
-        # Base certification coverage.
-        coverage_score = min(
-            total * 10,
-            30,
+        quantity_score = min(
+            certification_count * 15,
+            45,
         )
 
-        # Relevance is more important.
         relevance_score = min(
-            relevant * 20,
-            70,
+            relevant_count * 15,
+            55,
         )
 
         return min(
-            coverage_score + relevance_score,
+            quantity_score + relevance_score,
             100,
         )
+
+    # ============================================================
+    # UTILITY
+    # ============================================================
+
+    @staticmethod
+    def unique_preserve_order(
+        items: List[str],
+    ) -> List[str]:
+
+        seen = set()
+        result = []
+
+        for item in items:
+
+            key = item.lower().strip()
+
+            if key not in seen:
+                seen.add(key)
+                result.append(item)
+
+        return result

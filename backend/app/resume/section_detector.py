@@ -19,6 +19,11 @@ class SectionDetector:
             "objective",
             "career objective",
         ],
+        "contact": [
+            "contact",
+            "contact information",
+            "contact details",
+        ],
         "skills": [
             "skills",
             "technical skills",
