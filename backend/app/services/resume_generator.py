@@ -216,6 +216,239 @@ The JSON must have exactly this structure:
 Do not include markdown.
 Do not include explanations outside JSON.
 """
+    @staticmethod
+    def to_text(
+        generated_resume: dict,
+    ) -> str:
+        """
+        Convert the structured generated resume into plain text
+        so the existing ATS engine can analyze it.
+        """
+
+        sections = []
+
+        name = generated_resume.get("name", "")
+        email = generated_resume.get("email", "")
+        phone = generated_resume.get("phone", "")
+        location = generated_resume.get("location", "")
+
+        contact = " | ".join(
+            value
+            for value in [
+                name,
+                email,
+                phone,
+                location,
+            ]
+            if value
+        )
+
+        if contact:
+            sections.append(contact)
+
+        summary = generated_resume.get(
+            "summary",
+            "",
+        )
+
+        if summary:
+            sections.append(
+                f"SUMMARY\n{summary}"
+            )
+
+        skills = generated_resume.get(
+            "skills",
+            [],
+        )
+
+        if skills:
+            sections.append(
+                "SKILLS\n"
+                + ", ".join(skills)
+            )
+
+        experience = generated_resume.get(
+            "experience",
+            [],
+        )
+
+        if experience:
+            experience_lines = [
+                "EXPERIENCE"
+            ]
+
+            for item in experience:
+                company = item.get(
+                    "company",
+                    "",
+                )
+
+                role = item.get(
+                    "role",
+                    "",
+                )
+
+                duration = item.get(
+                    "duration",
+                    "",
+                )
+
+                header = " | ".join(
+                    value
+                    for value in [
+                        role,
+                        company,
+                        duration,
+                    ]
+                    if value
+                )
+
+                if header:
+                    experience_lines.append(
+                        header
+                    )
+
+                for bullet in item.get(
+                    "bullets",
+                    [],
+                ):
+                    experience_lines.append(
+                        f"- {bullet}"
+                    )
+
+            sections.append(
+                "\n".join(experience_lines)
+            )
+
+        projects = generated_resume.get(
+            "projects",
+            [],
+        )
+
+        if projects:
+            project_lines = [
+                "PROJECTS"
+            ]
+
+            for project in projects:
+                name = project.get(
+                    "name",
+                    "",
+                )
+
+                if name:
+                    project_lines.append(
+                        name
+                    )
+
+                description = project.get(
+                    "description",
+                    "",
+                )
+
+                if description:
+                    project_lines.append(
+                        description
+                    )
+
+                technologies = project.get(
+                    "technologies",
+                    [],
+                )
+
+                if technologies:
+                    project_lines.append(
+                        "Technologies: "
+                        + ", ".join(
+                            technologies
+                        )
+                    )
+
+                for bullet in project.get(
+                    "bullets",
+                    [],
+                ):
+                    project_lines.append(
+                        f"- {bullet}"
+                    )
+
+            sections.append(
+                "\n".join(project_lines)
+            )
+
+        education = generated_resume.get(
+            "education",
+            [],
+        )
+
+        if education:
+            education_lines = [
+                "EDUCATION"
+            ]
+
+            for item in education:
+                degree = item.get(
+                    "degree",
+                    "",
+                )
+
+                institution = item.get(
+                    "institution",
+                    "",
+                )
+
+                duration = item.get(
+                    "duration",
+                    "",
+                )
+
+                line = " | ".join(
+                    value
+                    for value in [
+                        degree,
+                        institution,
+                        duration,
+                    ]
+                    if value
+                )
+
+                if line:
+                    education_lines.append(
+                        line
+                    )
+
+            sections.append(
+                "\n".join(education_lines)
+            )
+
+        certifications = generated_resume.get(
+            "certifications",
+            [],
+        )
+
+        if certifications:
+            sections.append(
+                "CERTIFICATIONS\n"
+                + "\n".join(
+                    f"- {certification}"
+                    for certification in certifications
+                )
+            )
+
+        links = generated_resume.get(
+            "links",
+            [],
+        )
+
+        if links:
+            sections.append(
+                "LINKS\n"
+                + "\n".join(links)
+            )
+
+        return "\n\n".join(
+            sections
+        ).strip()
 
     @classmethod
     def generate(

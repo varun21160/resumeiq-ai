@@ -20,9 +20,20 @@ from app.schemas.resume import (
     ResumeResponse,
     ResumeListResponse,
 )
+from app.ai.validators.resume_truthfulness_validator import (
+    ResumeTruthfulnessValidator,
+)
+from app.schemas.resume_generation import (
+    ResumeGenerationRequest,
+    ResumeGenerationResponse,
+    GeneratedResume,
+)
 from app.services.resume_service import ResumeService
+from app.services.resume_generator import ResumeGenerator
 from app.resume.document_parser import DocumentParser
-
+from app.services.generated_resume_service import (
+    GeneratedResumeService,
+)
 
 router = APIRouter(
     prefix="/resumes",
@@ -374,6 +385,135 @@ def get_resume(
     return resume
 
 
+@router.post(
+    "/{resume_id}/generate",
+    response_model=ResumeGenerationResponse,
+    status_code=status.HTTP_200_OK,
+)
+def generate_resume(
+    resume_id: str,
+    request: ResumeGenerationRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = ResumeService()
+
+    resume = service.get_resume(
+        db,
+        resume_id,
+        current_user.id,
+    )
+
+    if resume is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Resume not found.",
+        )
+
+    if not resume.extracted_text:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Resume does not contain extracted text. "
+                "Please upload a readable PDF or DOCX resume."
+            ),
+        )
+
+    try:
+        # --------------------------------------------------
+        # 1. Generate tailored resume using Gemini
+        # --------------------------------------------------
+
+        generated_data = ResumeGenerator.generate(
+            resume_text=resume.extracted_text,
+            job_description=request.job_description,
+        )
+
+        changes = generated_data.pop(
+            "changes",
+            [],
+        )
+
+        # --------------------------------------------------
+        # 2. Validate generated resume against original
+        # --------------------------------------------------
+
+        validation = ResumeTruthfulnessValidator.validate(
+            original_resume_text=resume.extracted_text,
+            generated_resume=generated_data,
+        )
+
+        # --------------------------------------------------
+        # 3. Convert generated resume into schema
+        # --------------------------------------------------
+
+        generated_resume = GeneratedResume.model_validate(
+            generated_data
+        )
+
+        # --------------------------------------------------
+        # 4. Convert generated resume to plain text
+        # --------------------------------------------------
+
+        generated_resume_text = ResumeGenerator.to_text(
+            generated_resume.model_dump()
+        )
+
+        # --------------------------------------------------
+        # 5. Run existing ATS engine
+        # --------------------------------------------------
+
+        from app.ai.ats_report_engine import ATSReportEngine
+
+        ats_report = ATSReportEngine.generate(
+            resume_text=generated_resume_text,
+            job_description=request.job_description,
+        )
+        generated_record = GeneratedResumeService.create(
+    db,
+    user_id=current_user.id,
+    resume_id=resume.id,
+    job_description=request.job_description,
+    ats_score=ats_report.overall_score,
+    generated_resume=generated_resume.model_dump(),
+    changes=changes,
+)
+
+        # --------------------------------------------------
+        # 6. Add validation information to changes
+        # --------------------------------------------------
+
+        if validation["unsupported_skills"]:
+            changes.append(
+                "Potentially unsupported skills detected: "
+                + ", ".join(
+                    validation["unsupported_skills"]
+                )
+            )
+
+        # --------------------------------------------------
+        # 7. Return final generation response
+        # --------------------------------------------------
+
+        return {
+    "id": generated_record.id,
+    "resume_id": resume.id,
+    "ats_score": ats_report.overall_score,
+    "generated_resume": generated_resume,
+    "changes": changes,
+}
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Resume generation failed: {exc}",
+        ) from exc
 # ============================================================
 # Delete Resume
 # ============================================================
