@@ -1,34 +1,45 @@
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 from docx import Document
+from docx.enum.section import WD_SECTION
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import Inches, Pt
 
 from app.services.resume_templates import get_template
 
 
 class DOCXResumeGenerator:
     """
-    Generates ATS-friendly DOCX resumes.
+    ATS-friendly resume DOCX generator.
 
     Supported templates:
-        - ats_classic
-        - corporate_ats
+        - single_column
+        - double_column
+
+    The double-column template follows the structure
+    of the supplied reference resume:
+        Header
+        Career Objective
+        Left sidebar
+        Main career content
     """
+
+    # ==========================================================
+    # PUBLIC ENTRY POINT
+    # ==========================================================
 
     @staticmethod
     def generate(
         generated_resume: Dict,
         output_path: str,
-        template_key: str = "ats_classic",
+        template_key: str = "single_column",
+        mailing_address: Optional[str] = None,
     ) -> str:
 
-        template = get_template(
-            template_key
-        )
+        template = get_template(template_key)
 
         output = Path(output_path)
 
@@ -47,24 +58,31 @@ class DOCXResumeGenerator:
             document
         )
 
-        if template.columns == 1:
+        if template.key == "single_column":
 
             DOCXResumeGenerator._build_single_column(
                 document,
                 generated_resume,
             )
 
-        elif template.columns == 2:
+        elif template.key == "double_column":
 
-            DOCXResumeGenerator._build_two_column(
+            if not mailing_address:
+                raise ValueError(
+                    "Mailing address is required "
+                    "for the double-column template."
+                )
+
+            DOCXResumeGenerator._build_double_column(
                 document,
                 generated_resume,
+                mailing_address,
             )
 
         else:
 
             raise ValueError(
-                "Unsupported template column count."
+                f"Unsupported template: {template_key}"
             )
 
         document.save(
@@ -73,9 +91,9 @@ class DOCXResumeGenerator:
 
         return str(output)
 
-    # ======================================================
+    # ==========================================================
     # DOCUMENT CONFIGURATION
-    # ======================================================
+    # ==========================================================
 
     @staticmethod
     def _configure_page(
@@ -84,10 +102,13 @@ class DOCXResumeGenerator:
 
         section = document.sections[0]
 
-        section.top_margin = Inches(0.55)
-        section.bottom_margin = Inches(0.55)
-        section.left_margin = Inches(0.65)
-        section.right_margin = Inches(0.65)
+        section.top_margin = Inches(0.45)
+        section.bottom_margin = Inches(0.45)
+        section.left_margin = Inches(0.55)
+        section.right_margin = Inches(0.55)
+
+        section.header_distance = Inches(0.2)
+        section.footer_distance = Inches(0.2)
 
     @staticmethod
     def _configure_styles(
@@ -97,13 +118,21 @@ class DOCXResumeGenerator:
         normal = document.styles["Normal"]
 
         normal.font.name = "Arial"
-        normal.font.size = Pt(9.5)
+        normal.font.size = Pt(9)
 
+        normal.paragraph_format.space_before = Pt(0)
         normal.paragraph_format.space_after = Pt(2)
+        normal.paragraph_format.line_spacing = 1.0
 
-    # ======================================================
+        # Ensure Arial is applied to East Asian fonts too.
+        normal._element.rPr.rFonts.set(
+            qn("w:eastAsia"),
+            "Arial",
+        )
+
+    # ==========================================================
     # SINGLE COLUMN TEMPLATE
-    # ======================================================
+    # ==========================================================
 
     @staticmethod
     def _build_single_column(
@@ -111,15 +140,32 @@ class DOCXResumeGenerator:
         resume: Dict,
     ) -> None:
 
-        DOCXResumeGenerator._add_header(
+        DOCXResumeGenerator._add_name_header(
             document,
             resume,
         )
 
-        DOCXResumeGenerator._add_summary(
+        DOCXResumeGenerator._add_contact_information(
             document,
             resume,
         )
+
+        DOCXResumeGenerator._add_section(
+            document,
+            "Professional Summary",
+        )
+
+        summary = resume.get(
+            "summary",
+            "",
+        )
+
+        if summary:
+
+            DOCXResumeGenerator._add_body_text(
+                document,
+                summary,
+            )
 
         DOCXResumeGenerator._add_skills(
             document,
@@ -146,32 +192,74 @@ class DOCXResumeGenerator:
             resume,
         )
 
-    # ======================================================
-    # TWO COLUMN TEMPLATE
-    # ======================================================
-
-    @staticmethod
-    def _build_two_column(
-        document: Document,
-        resume: Dict,
-    ) -> None:
-
-        DOCXResumeGenerator._add_header(
+        DOCXResumeGenerator._add_links(
             document,
             resume,
         )
+
+    # ==========================================================
+    # DOUBLE COLUMN TEMPLATE
+    # ==========================================================
+
+    @staticmethod
+    def _build_double_column(
+        document: Document,
+        resume: Dict,
+        mailing_address: str,
+    ) -> None:
+
+        # ------------------------------------------------------
+        # TOP HEADER
+        # ------------------------------------------------------
+
+        DOCXResumeGenerator._add_name_header(
+            document,
+            resume,
+        )
+
+        DOCXResumeGenerator._add_contact_information(
+            document,
+            resume,
+        )
+
+        # ------------------------------------------------------
+        # CAREER OBJECTIVE
+        # ------------------------------------------------------
+
+        DOCXResumeGenerator._add_section(
+            document,
+            "Career Objective",
+        )
+
+        objective = DOCXResumeGenerator._create_objective(
+            resume
+        )
+
+        DOCXResumeGenerator._add_body_text(
+            document,
+            objective,
+        )
+
+        # ------------------------------------------------------
+        # START TWO-COLUMN AREA
+        # ------------------------------------------------------
 
         DOCXResumeGenerator._enable_two_columns(
             document
         )
 
-        # ----------------------------------------------
+        # ======================================================
         # LEFT COLUMN
-        # ----------------------------------------------
+        # ======================================================
 
-        DOCXResumeGenerator._add_contact_block(
+        DOCXResumeGenerator._add_section(
             document,
-            resume,
+            "Mailing Address",
+        )
+
+        DOCXResumeGenerator._add_multiline_text(
+            document,
+            mailing_address,
         )
 
         DOCXResumeGenerator._add_skills(
@@ -189,22 +277,22 @@ class DOCXResumeGenerator:
             resume,
         )
 
-        # ----------------------------------------------
-        # Move to right column
-        # ----------------------------------------------
+        DOCXResumeGenerator._add_links(
+            document,
+            resume,
+        )
+
+        # ======================================================
+        # COLUMN BREAK
+        # ======================================================
 
         DOCXResumeGenerator._add_column_break(
             document
         )
 
-        # ----------------------------------------------
+        # ======================================================
         # RIGHT COLUMN
-        # ----------------------------------------------
-
-        DOCXResumeGenerator._add_summary(
-            document,
-            resume,
-        )
+        # ======================================================
 
         DOCXResumeGenerator._add_experience(
             document,
@@ -216,12 +304,12 @@ class DOCXResumeGenerator:
             resume,
         )
 
-    # ======================================================
+    # ==========================================================
     # HEADER
-    # ======================================================
+    # ==========================================================
 
     @staticmethod
-    def _add_header(
+    def _add_name_header(
         document: Document,
         resume: Dict,
     ) -> None:
@@ -239,19 +327,47 @@ class DOCXResumeGenerator:
 
         paragraph.paragraph_format.space_after = Pt(2)
 
-        run = paragraph.add_run(name)
+        run = paragraph.add_run(
+            name
+        )
 
         run.bold = True
         run.font.name = "Arial"
         run.font.size = Pt(18)
 
-        # Target role if available
-        target_role = resume.get(
-            "target_role",
+    @staticmethod
+    def _add_contact_information(
+        document: Document,
+        resume: Dict,
+    ) -> None:
+
+        values = []
+
+        email = resume.get(
+            "email",
             "",
         )
 
-        if target_role:
+        phone = resume.get(
+            "phone",
+            "",
+        )
+
+        location = resume.get(
+            "location",
+            "",
+        )
+
+        if email:
+            values.append(email)
+
+        if phone:
+            values.append(phone)
+
+        if location:
+            values.append(location)
+
+        if values:
 
             paragraph = document.add_paragraph()
 
@@ -259,39 +375,27 @@ class DOCXResumeGenerator:
                 WD_ALIGN_PARAGRAPH.CENTER
             )
 
-            paragraph.paragraph_format.space_after = Pt(2)
+            paragraph.paragraph_format.space_after = Pt(1)
 
             run = paragraph.add_run(
-                target_role.upper()
+                " | ".join(values)
             )
 
-            run.bold = True
-            run.font.size = Pt(10)
-
-        DOCXResumeGenerator._add_contact_line(
-            document,
-            resume,
-        )
+            run.font.name = "Arial"
+            run.font.size = Pt(8.5)
 
     @staticmethod
-    def _add_contact_line(
+    def _add_links(
         document: Document,
         resume: Dict,
     ) -> None:
 
-        values = [
-            resume.get("email", ""),
-            resume.get("phone", ""),
-            resume.get("location", ""),
-        ]
+        links = resume.get(
+            "links",
+            [],
+        )
 
-        values = [
-            value
-            for value in values
-            if value
-        ]
-
-        if not values:
+        if not links:
             return
 
         paragraph = document.add_paragraph()
@@ -300,116 +404,127 @@ class DOCXResumeGenerator:
             WD_ALIGN_PARAGRAPH.CENTER
         )
 
+        paragraph.paragraph_format.space_after = Pt(2)
+
         run = paragraph.add_run(
-            " | ".join(values)
+            " | ".join(links)
         )
 
-        run.font.size = Pt(8.5)
+        run.font.name = "Arial"
+        run.font.size = Pt(8)
 
-        links = resume.get(
-            "links",
-            [],
+    # ==========================================================
+    # SECTION HEADING
+    # ==========================================================
+
+    @staticmethod
+    def _add_section(
+        document: Document,
+        title: str,
+    ) -> None:
+
+        paragraph = document.add_paragraph()
+
+        paragraph.paragraph_format.space_before = Pt(5)
+        paragraph.paragraph_format.space_after = Pt(2)
+
+        run = paragraph.add_run(
+            title.upper()
         )
 
-        if links:
+        run.bold = True
+        run.font.name = "Arial"
+        run.font.size = Pt(10.5)
+
+        # Add bottom border.
+        p = paragraph._p
+        pPr = p.get_or_add_pPr()
+
+        pBdr = OxmlElement(
+            "w:pBdr"
+        )
+
+        bottom = OxmlElement(
+            "w:bottom"
+        )
+
+        bottom.set(
+            qn("w:val"),
+            "single",
+        )
+
+        bottom.set(
+            qn("w:sz"),
+            "6",
+        )
+
+        bottom.set(
+            qn("w:space"),
+            "1",
+        )
+
+        bottom.set(
+            qn("w:color"),
+            "000000",
+        )
+
+        pBdr.append(
+            bottom
+        )
+
+        pPr.append(
+            pBdr
+        )
+
+    # ==========================================================
+    # BODY TEXT
+    # ==========================================================
+
+    @staticmethod
+    def _add_body_text(
+        document: Document,
+        text: str,
+    ) -> None:
+
+        paragraph = document.add_paragraph()
+
+        paragraph.paragraph_format.space_after = Pt(3)
+        paragraph.paragraph_format.line_spacing = 1.0
+
+        run = paragraph.add_run(
+            text
+        )
+
+        run.font.name = "Arial"
+        run.font.size = Pt(9)
+
+    @staticmethod
+    def _add_multiline_text(
+        document: Document,
+        text: str,
+    ) -> None:
+
+        for line in text.splitlines():
+
+            line = line.strip()
+
+            if not line:
+                continue
 
             paragraph = document.add_paragraph()
 
-            paragraph.alignment = (
-                WD_ALIGN_PARAGRAPH.CENTER
-            )
+            paragraph.paragraph_format.space_after = Pt(1)
 
             run = paragraph.add_run(
-                " | ".join(links)
+                line
             )
 
+            run.font.name = "Arial"
             run.font.size = Pt(8.5)
 
-    @staticmethod
-    def _add_contact_block(
-        document: Document,
-        resume: Dict,
-    ) -> None:
-
-        values = [
-            resume.get("email", ""),
-            resume.get("phone", ""),
-            resume.get("location", ""),
-        ]
-
-        values = [
-            value
-            for value in values
-            if value
-        ]
-
-        if values:
-
-            DOCXResumeGenerator._add_heading(
-                document,
-                "Contact",
-            )
-
-            for value in values:
-
-                paragraph = document.add_paragraph(
-                    value
-                )
-
-                paragraph.paragraph_format.space_after = Pt(1)
-
-        links = resume.get(
-            "links",
-            [],
-        )
-
-        if links:
-
-            DOCXResumeGenerator._add_heading(
-                document,
-                "Links",
-            )
-
-            for link in links:
-
-                paragraph = document.add_paragraph(
-                    link
-                )
-
-                paragraph.paragraph_format.space_after = Pt(1)
-
-    # ======================================================
-    # SUMMARY
-    # ======================================================
-
-    @staticmethod
-    def _add_summary(
-        document: Document,
-        resume: Dict,
-    ) -> None:
-
-        summary = resume.get(
-            "summary",
-            "",
-        )
-
-        if not summary:
-            return
-
-        DOCXResumeGenerator._add_heading(
-            document,
-            "Professional Summary",
-        )
-
-        paragraph = document.add_paragraph(
-            summary
-        )
-
-        paragraph.paragraph_format.space_after = Pt(3)
-
-    # ======================================================
+    # ==========================================================
     # SKILLS
-    # ======================================================
+    # ==========================================================
 
     @staticmethod
     def _add_skills(
@@ -425,20 +540,25 @@ class DOCXResumeGenerator:
         if not skills:
             return
 
-        DOCXResumeGenerator._add_heading(
+        DOCXResumeGenerator._add_section(
             document,
             "Technical Skills",
         )
 
-        paragraph = document.add_paragraph(
-            ", ".join(skills)
-        )
+        paragraph = document.add_paragraph()
 
         paragraph.paragraph_format.space_after = Pt(3)
 
-    # ======================================================
+        run = paragraph.add_run(
+            ", ".join(skills)
+        )
+
+        run.font.name = "Arial"
+        run.font.size = Pt(8.5)
+
+    # ==========================================================
     # EXPERIENCE
-    # ======================================================
+    # ==========================================================
 
     @staticmethod
     def _add_experience(
@@ -454,7 +574,7 @@ class DOCXResumeGenerator:
         if not experience:
             return
 
-        DOCXResumeGenerator._add_heading(
+        DOCXResumeGenerator._add_section(
             document,
             "Experience",
         )
@@ -476,30 +596,40 @@ class DOCXResumeGenerator:
                 "",
             )
 
-            values = [
-                role,
-                company,
-                duration,
-            ]
+            heading_values = []
 
-            values = [
-                value
-                for value in values
-                if value
-            ]
+            if role:
+                heading_values.append(role)
 
-            if values:
+            if company:
+                heading_values.append(company)
+
+            paragraph = document.add_paragraph()
+
+            paragraph.paragraph_format.space_after = Pt(1)
+
+            run = paragraph.add_run(
+                " - ".join(
+                    heading_values
+                )
+            )
+
+            run.bold = True
+            run.font.name = "Arial"
+            run.font.size = Pt(9)
+
+            if duration:
 
                 paragraph = document.add_paragraph()
 
                 paragraph.paragraph_format.space_after = Pt(1)
 
                 run = paragraph.add_run(
-                    " | ".join(values)
+                    duration
                 )
 
-                run.bold = True
-                run.font.size = Pt(9.5)
+                run.italic = True
+                run.font.size = Pt(8)
 
             for bullet in item.get(
                 "bullets",
@@ -511,9 +641,9 @@ class DOCXResumeGenerator:
                     bullet,
                 )
 
-    # ======================================================
+    # ==========================================================
     # PROJECTS
-    # ======================================================
+    # ==========================================================
 
     @staticmethod
     def _add_projects(
@@ -529,7 +659,7 @@ class DOCXResumeGenerator:
         if not projects:
             return
 
-        DOCXResumeGenerator._add_heading(
+        DOCXResumeGenerator._add_section(
             document,
             "Projects",
         )
@@ -547,10 +677,13 @@ class DOCXResumeGenerator:
 
                 paragraph.paragraph_format.space_after = Pt(1)
 
-                run = paragraph.add_run(name)
+                run = paragraph.add_run(
+                    name
+                )
 
                 run.bold = True
-                run.font.size = Pt(9.5)
+                run.font.name = "Arial"
+                run.font.size = Pt(9)
 
             description = project.get(
                 "description",
@@ -559,11 +692,10 @@ class DOCXResumeGenerator:
 
             if description:
 
-                paragraph = document.add_paragraph(
-                    description
+                DOCXResumeGenerator._add_body_text(
+                    document,
+                    description,
                 )
-
-                paragraph.paragraph_format.space_after = Pt(1)
 
             technologies = project.get(
                 "technologies",
@@ -574,6 +706,8 @@ class DOCXResumeGenerator:
 
                 paragraph = document.add_paragraph()
 
+                paragraph.paragraph_format.space_after = Pt(1)
+
                 run = paragraph.add_run(
                     "Technologies: "
                     + ", ".join(
@@ -582,7 +716,7 @@ class DOCXResumeGenerator:
                 )
 
                 run.italic = True
-                run.font.size = Pt(8.5)
+                run.font.size = Pt(8)
 
             for bullet in project.get(
                 "bullets",
@@ -594,9 +728,9 @@ class DOCXResumeGenerator:
                     bullet,
                 )
 
-    # ======================================================
+    # ==========================================================
     # EDUCATION
-    # ======================================================
+    # ==========================================================
 
     @staticmethod
     def _add_education(
@@ -612,7 +746,7 @@ class DOCXResumeGenerator:
         if not education:
             return
 
-        DOCXResumeGenerator._add_heading(
+        DOCXResumeGenerator._add_section(
             document,
             "Education",
         )
@@ -634,29 +768,38 @@ class DOCXResumeGenerator:
                 "",
             )
 
-            values = [
-                degree,
-                institution,
-                duration,
-            ]
+            if degree:
 
-            values = [
-                value
-                for value in values
-                if value
-            ]
+                paragraph = document.add_paragraph()
 
-            if values:
+                paragraph.paragraph_format.space_after = Pt(1)
+
+                run = paragraph.add_run(
+                    degree
+                )
+
+                run.bold = True
+                run.font.size = Pt(8.5)
+
+            if institution:
 
                 paragraph = document.add_paragraph(
-                    " | ".join(values)
+                    institution
+                )
+
+                paragraph.paragraph_format.space_after = Pt(1)
+
+            if duration:
+
+                paragraph = document.add_paragraph(
+                    duration
                 )
 
                 paragraph.paragraph_format.space_after = Pt(2)
 
-    # ======================================================
+    # ==========================================================
     # CERTIFICATIONS
-    # ======================================================
+    # ==========================================================
 
     @staticmethod
     def _add_certifications(
@@ -672,7 +815,7 @@ class DOCXResumeGenerator:
         if not certifications:
             return
 
-        DOCXResumeGenerator._add_heading(
+        DOCXResumeGenerator._add_section(
             document,
             "Certifications",
         )
@@ -684,28 +827,9 @@ class DOCXResumeGenerator:
                 certification,
             )
 
-    # ======================================================
-    # FORMATTING HELPERS
-    # ======================================================
-
-    @staticmethod
-    def _add_heading(
-        document: Document,
-        title: str,
-    ) -> None:
-
-        paragraph = document.add_paragraph()
-
-        paragraph.paragraph_format.space_before = Pt(5)
-        paragraph.paragraph_format.space_after = Pt(2)
-
-        run = paragraph.add_run(
-            title.upper()
-        )
-
-        run.bold = True
-        run.font.name = "Arial"
-        run.font.size = Pt(10.5)
+    # ==========================================================
+    # BULLET
+    # ==========================================================
 
     @staticmethod
     def _add_bullet(
@@ -713,28 +837,59 @@ class DOCXResumeGenerator:
         text: str,
     ) -> None:
 
-        paragraph = document.add_paragraph(
-            style="List Bullet"
-        )
+        paragraph = document.add_paragraph()
 
         paragraph.paragraph_format.left_indent = Inches(
-            0.18
+            0.14
         )
 
         paragraph.paragraph_format.first_line_indent = Inches(
-            -0.12
+            -0.10
         )
 
         paragraph.paragraph_format.space_after = Pt(1)
 
-        run = paragraph.add_run(text)
+        run = paragraph.add_run(
+            "• "
+        )
 
         run.font.name = "Arial"
-        run.font.size = Pt(9)
+        run.font.size = Pt(8.5)
 
-    # ======================================================
+        run = paragraph.add_run(
+            text
+        )
+
+        run.font.name = "Arial"
+        run.font.size = Pt(8.5)
+
+    # ==========================================================
+    # CAREER OBJECTIVE
+    # ==========================================================
+
+    @staticmethod
+    def _create_objective(
+        resume: Dict,
+    ) -> str:
+
+        summary = resume.get(
+            "summary",
+            "",
+        ).strip()
+
+        if summary:
+            return summary
+
+        return (
+            "To secure a challenging position where I can "
+            "apply my technical and analytical skills to "
+            "solve business problems while contributing "
+            "to organizational growth."
+        )
+
+    # ==========================================================
     # TWO-COLUMN WORD XML
-    # ======================================================
+    # ==========================================================
 
     @staticmethod
     def _enable_two_columns(
@@ -745,7 +900,19 @@ class DOCXResumeGenerator:
 
         sect_pr = section._sectPr
 
-        columns = OxmlElement("w:cols")
+        columns = sect_pr.find(
+            qn("w:cols")
+        )
+
+        if columns is None:
+
+            columns = OxmlElement(
+                "w:cols"
+            )
+
+            sect_pr.append(
+                columns
+            )
 
         columns.set(
             qn("w:num"),
@@ -755,10 +922,6 @@ class DOCXResumeGenerator:
         columns.set(
             qn("w:space"),
             "720",
-        )
-
-        sect_pr.append(
-            columns
         )
 
     @staticmethod

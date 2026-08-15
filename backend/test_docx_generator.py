@@ -151,22 +151,22 @@ output_dir.mkdir(
 
 
 # ======================================================
-# 1. ATS CLASSIC - SINGLE COLUMN
+# 1. SINGLE COLUMN
 # ======================================================
 
 single_column_path = (
     output_dir
-    / "test_resume_ats_classic.docx"
+    / "test_resume_single_column.docx"
 )
 
 DOCXResumeGenerator.generate(
     generated_resume=test_resume,
     output_path=str(single_column_path),
-    template_key="ats_classic",
+    template_key="single_column",
 )
 
 print(
-    "ATS Classic generated successfully:"
+    "Single-column resume generated:"
 )
 
 print(
@@ -175,41 +175,47 @@ print(
 
 
 # ======================================================
-# 2. CORPORATE ATS - TWO COLUMN
+# 2. DOUBLE COLUMN
 # ======================================================
 
-two_column_path = (
+mailing_address = """Flat no: G7,
+Rajeev Gruha Kalpa Apartments,
+YSR Colony,
+Chilakaluripet - 522 616."""
+
+
+double_column_path = (
     output_dir
-    / "test_resume_corporate_ats.docx"
+    / "test_resume_double_column.docx"
 )
 
 DOCXResumeGenerator.generate(
     generated_resume=test_resume,
-    output_path=str(two_column_path),
-    template_key="corporate_ats",
+    output_path=str(double_column_path),
+    template_key="double_column",
+    mailing_address=mailing_address,
 )
 
 print(
-    "Corporate ATS generated successfully:"
+    "Double-column resume generated:"
 )
 
 print(
-    two_column_path
+    double_column_path
 )
 
 
 # ======================================================
-# FINAL STATUS
+# COMPLETE
 # ======================================================
 
 print()
-print("======================================")
-print("DOCX TEMPLATE TEST COMPLETED")
-print("======================================")
 print(
-    f"Single Column : {single_column_path}"
+    "========================================"
 )
 print(
-    f"Two Column    : {two_column_path}"
+    "RESUME TEMPLATE TEST COMPLETED"
 )
-print("======================================")
+print(
+    "========================================"
+)
